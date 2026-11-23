@@ -4,6 +4,38 @@ Running record of every step: what was built, why, how to reproduce it, and draf
 
 ---
 
+## Dataset – provenance and file inventory (updated 2026-11-24)
+
+**There is exactly ONE dataset in this project, and every step uses it.**
+
+| File | Rows | Size | SHA-256 | Created by |
+|---|---|---|---|---|
+| `data/factindic_synth_articles.jsonl` | 128 articles | 267,900 bytes | `8428bec7…2fd92` | `python -m src.synth` (seed 42), Step 1 |
+| `data/factindic_synth_errors.jsonl` | 512 summary rows | 926,492 bytes | `acbd2854…e3a3` | same run |
+
+* **Origin.** The files were *not* supplied with the project: `data/` was empty when Step 1
+  started. On the author's instruction ("do it by yourself") they were **generated** by the
+  template-based generator `src/synth.py` (8 domains × 2 languages × 8 articles; 1 correct + 3
+  single-error summaries per article). Re-running the generator reproduces them byte for byte
+  (`tests/test_synth.py::test_generator_is_deterministic`).
+* **Unchanged since Step 1.** The hashes above equal those stored in
+  `results/dataset_stats/run_meta.json`, and git shows no change to `data/` after commit
+  `593d923`.
+* **No other or harder dataset exists.** The Step 3 "pooled stress test" is an *evaluation
+  setting*, not a dataset: at evaluation time it groups the sentences of all articles in the same
+  language × domain × split into one candidate pool (35–42 sentences on test, 14–21 on dev).
+  Nothing is written to `data/`.
+* **Sample IDs used as examples** (all from these files): `hi001` (Step 1), `hi025-E3` (Step 2;
+  test split, entity swap विकास यादव → नेहा गुप्ता, Sanjeevani Medical College, Gwalior),
+  `hi013-E3` (Step 3).
+* **If an external FactIndic release becomes available**, put it in `data/` under the same file
+  names and re-run `python -m src.data`, `python -m experiments.dataset_stats` and every later
+  experiment; all tables in this log would need to be regenerated, and the derived gold evidence
+  in Step 3 relies on generator templates (`src.synth.DOMAINS`), which an external dataset
+  would not have.
+
+---
+
 ## Step 1 – Project setup, data loading and dataset analysis (2026-11-24)
 
 > **Important note on data provenance.** The two dataset files were *not* present in `data/`
@@ -547,3 +579,55 @@ No condition (language, Devanagari digits, spelling noise) drops below 100 % ful
   look best.
 * **Hard negatives / distractors:** wrong candidates that look very similar to the right one (same
   template, different number). They are what makes retrieval difficult in practice.
+
+---
+
+## Step 3b – Per-language retriever selection on DEV (2026-11-24)
+
+> Requested review: compare LaBSE vs lexical+norm on DEV per language (and noisy vs clean
+> Hinglish), apply the pre-registered rule; if no single winner in both languages, use a hybrid
+> (mean of normalised scores). Results: `results/retrieval/dev_breakdown_20261124_021128/`.
+
+**Change to the hybrid.** "Average of the two normalised scores" is now implemented literally:
+`retrieval.score_norm: minmax` rescales each scorer to [0, 1] across a claim's candidate
+sentences, then averages (α = 0.5). This also removes the scale mismatch noted in Step 3
+(TF-IDF ≈ 0.1–0.4 vs LaBSE ≈ 0.5–0.9). New function `src.retrieve.minmax_rows()` + 1 test.
+
+**DEV results (own source; stress = pooled same-language × domain × dev articles).**
+
+| Group | Config | full R@1 | full R@3 | hit@1 | MRR | n | stress R@3 | stress MRR |
+|---|---|---|---|---|---|---|---|---|
+| Hindi | **lexical+norm** | 94.9 | 100 | 100 | **1.000** | 118 | 98.3 | 0.894 |
+| Hindi | labse | 94.1 | 100 | 99.2 | 0.996 | 118 | 100 | 0.873 |
+| Hindi | labse+norm *(baseline)* | 94.1 | 100 | 99.2 | 0.996 | 118 | 100 | 0.881 |
+| Hindi | hybrid-minmax+norm *(baseline)* | 94.9 | 100 | 100 | 1.000 | 118 | 100 | 0.884 |
+| Hinglish | **lexical+norm** | 95.9 | 100 | 100 | **1.000** | 121 | 100 | 0.880 |
+| Hinglish | labse | 95.0 | 100 | 99.2 | 0.996 | 121 | 95.9 | 0.873 |
+| Hinglish | labse+norm *(baseline)* | 94.2 | 100 | 98.3 | 0.992 | 121 | 95.0 | 0.868 |
+| Hinglish | hybrid-minmax+norm *(baseline)* | 95.9 | 100 | 100 | 1.000 | 121 | 98.3 | 0.883 |
+
+| Hinglish subset | Config | full R@1 | full R@3 | hit@1 | MRR | n | stress R@3 | stress MRR |
+|---|---|---|---|---|---|---|---|---|
+| clean | lexical+norm | 92.3 | 100 | 100 | 1.000 | 52 | 100 | 0.891 |
+| clean | labse | 90.4 | 100 | 98.1 | 0.990 | 52 | 90.4 | 0.886 |
+| noisy | lexical+norm | 98.6 | 100 | 100 | 1.000 | 69 | 100 | 0.872 |
+| noisy | labse | 98.6 | 100 | 100 | 1.000 | 69 | 100 | 0.862 |
+
+**Rule applied (DEV only).** Criteria in order: full R@3 → MRR → stress R@3 → simplicity.
+Hindi: tie on R@3, **lexical+norm wins on MRR** (1.000 vs 0.996). Hinglish: tie on R@3,
+**lexical+norm wins on MRR** (1.000 vs 0.996). Same winner in both languages → **default =
+lexical+norm** (`config.yaml: method: lexical, normalize: true`). LaBSE, LaBSE+norm and the
+min-max hybrid remain reported baselines.
+
+**Honest reading.** The deciding margin is one claim per language (MRR 0.996 = one claim with
+its evidence at rank 2). The two retrievers are practically equivalent on this data; the choice
+is defensible (pre-registered, simpler, no 1.8 GB model) but not evidence that lexical retrieval
+is generally better. Interesting detail: spelling noise did *not* hurt either method on dev
+(noisy Hinglish full R@1 98.6 % vs clean 90–92 %). The gap is explained by claim mix, not
+noise: 4 of 52 clean claims (7.7 %) need two sentences, which caps R@1 at 92.3 % – exactly what
+lexical+norm reaches – versus 1 of 69 noisy claims (cap 98.6 %, also reached).
+
+**For the paper (Experimental Setup).** "The retriever was selected on the development set
+separately for each language using a pre-specified order of criteria; lexical retrieval with
+script normalisation was preferred in both Hindi and Hinglish (MRR 1.000 vs 0.996 for LaBSE),
+and LaBSE and a min–max-normalised hybrid are reported as baselines."

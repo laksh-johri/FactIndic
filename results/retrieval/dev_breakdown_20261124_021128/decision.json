@@ -1,0 +1,12 @@
+{
+  "timestamp": "20261124_021128",
+  "hindi": "lexical+norm",
+  "hindi_decided_by": "mrr",
+  "hinglish": "lexical+norm",
+  "hinglish_decided_by": "mrr",
+  "decision": "lexical+norm",
+  "decision_kwargs": {
+    "method": "lexical",
+    "normalize_text": true
+  }
+}

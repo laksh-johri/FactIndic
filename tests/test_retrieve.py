@@ -56,6 +56,12 @@ def test_retrieve_finds_number_sentence_with_devanagari_digits(method, tmp_path)
     assert ev[0].sent_idx == 0 and src[ev[0].start:ev[0].end] == ev[0].text
 
 
+def test_minmax_rows():
+    from src.retrieve import minmax_rows
+    m = minmax_rows(np.array([[0.2, 0.4, 0.3], [0.5, 0.5, 0.5]]))
+    assert np.allclose(m[0], [0, 1, 0.5]) and np.allclose(m[1], 0)
+
+
 def test_bad_method():
     with pytest.raises(ValueError):
         Retriever(method="bm25")

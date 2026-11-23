@@ -3,7 +3,8 @@
 Scorers (config.yaml -> retrieval.method):
   lexical : cosine of character 2-4-gram TF-IDF vectors (surface overlap; robust to spelling noise)
   labse   : cosine of LaBSE sentence embeddings (meaning; language/script independent)
-  hybrid  : alpha * labse + (1 - alpha) * lexical    (alpha tuned on DEV)
+  hybrid  : alpha * labse + (1 - alpha) * lexical; with retrieval.score_norm = minmax each
+            scorer is first rescaled to [0, 1] per claim (so alpha = 0.5 is a true average)
 retrieval.normalize = true applies src.textnorm.normalize() to both sides before scoring
 (Devanagari digits -> ASCII, nukta removed, lowercase).
 
@@ -109,13 +110,23 @@ def lexical_scores(claims: list[str], sentences: list[str]) -> np.ndarray:
     return (c @ s.T).toarray()                    # rows are L2-normalised -> dot = cosine
 
 
+def minmax_rows(m: np.ndarray) -> np.ndarray:
+    """Rescale each row to [0, 1]; a constant row becomes all zeros."""
+    lo, hi = m.min(axis=1, keepdims=True), m.max(axis=1, keepdims=True)
+    return (m - lo) / np.where(hi - lo > 1e-12, hi - lo, 1.0)
+
+
 class Retriever:
     def __init__(self, method: str | None = None, top_k: int | None = None, alpha: float | None = None,
-                 normalize_text: bool | None = None, embedder: Embedder | None = None):
+                 normalize_text: bool | None = None, embedder: Embedder | None = None,
+                 score_norm: str | None = None):
         rc = load_config()["retrieval"]
         self.method = method or rc.get("method", "labse")
         if self.method not in METHODS:
             raise ValueError(f"unknown retrieval method {self.method!r}")
+        self.score_norm = score_norm or rc.get("score_norm", "none")
+        if self.score_norm not in ("none", "minmax"):
+            raise ValueError(f"unknown score_norm {self.score_norm!r}")
         self.top_k = top_k or rc["top_k"]
         self.alpha = rc.get("alpha", 0.5) if alpha is None else alpha
         self.normalize_text = rc.get("normalize", True) if normalize_text is None else normalize_text
@@ -139,7 +150,10 @@ class Retriever:
         sem = e[len(s):] @ e[: len(s)].T
         if self.method == "labse":
             return sem
-        return self.alpha * sem + (1 - self.alpha) * lexical_scores(c, s)
+        lex = lexical_scores(c, s)
+        if self.score_norm == "minmax":            # put both scorers on [0, 1] per claim first
+            sem, lex = minmax_rows(sem), minmax_rows(lex)
+        return self.alpha * sem + (1 - self.alpha) * lex
 
     def retrieve_many(self, claims: list[str], source: str, k: int | None = None) -> list[list[Evidence]]:
         k = k or self.top_k

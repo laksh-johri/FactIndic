@@ -1,0 +1,9 @@
+group,config,full_recall@1,full_recall@2,full_recall@3,full_recall@5,hit@1,mrr,n,stress_full_recall@3,stress_mrr
+hindi,hybrid-minmax+norm,94.9,100.0,100.0,100.0,100.0,1.0,118,100.0,0.884
+hindi,labse,94.1,100.0,100.0,100.0,99.2,0.996,118,100.0,0.873
+hindi,labse+norm,94.1,100.0,100.0,100.0,99.2,0.996,118,100.0,0.881
+hindi,lexical+norm,94.9,100.0,100.0,100.0,100.0,1.0,118,98.3,0.894
+hinglish,hybrid-minmax+norm,95.9,100.0,100.0,100.0,100.0,1.0,121,98.3,0.883
+hinglish,labse,95.0,100.0,100.0,100.0,99.2,0.996,121,95.9,0.873
+hinglish,labse+norm,94.2,100.0,100.0,100.0,98.3,0.992,121,95.0,0.868
+hinglish,lexical+norm,95.9,100.0,100.0,100.0,100.0,1.0,121,100.0,0.88

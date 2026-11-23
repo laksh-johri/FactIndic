@@ -22,12 +22,13 @@ decomposition:
 
 retrieval:
   top_k: 3
-  # Selected on DEV in Step 3 (results/retrieval/run_20261124_015054): all configs tie on the
-  # own-source setting; pre-registered tie-breaks (MRR -> pooled stress recall@3 -> simplicity)
-  # pick plain char-n-gram TF-IDF. lexical+norm is equivalent on dev (differs only in stress MRR).
+  # Selected on DEV (Step 3b, results/retrieval/dev_breakdown_20261124_021128): LaBSE vs
+  # lexical+norm compared per language with the pre-registered rule; lexical+norm wins in BOTH
+  # Hindi and Hinglish (decided by MRR, 1.000 vs 0.996). LaBSE and hybrid stay as baselines.
   method: lexical                 # lexical | labse | hybrid
-  normalize: false                # digits/nukta/case normalisation before scoring
+  normalize: true                 # digits/nukta/case normalisation before scoring
   alpha: 0.5                      # hybrid weight on LaBSE (only used if method = hybrid)
+  score_norm: minmax              # hybrid only: rescale both scorers to [0,1] per claim, then average
 
 verification:
   nli_threshold: 0.5              # placeholder; tune on DEV only (Step 6)
