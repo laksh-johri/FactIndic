@@ -1,0 +1,11 @@
+config,kind,full_recall@1,full_recall@2,full_recall@3,full_recall@5,hit@1,mrr,n
+lexical,error,41.5,55.2,67.0,92.5,45.8,0.618,212
+lexical,reference,72.6,84.7,93.1,99.4,75.7,0.847,321
+lexical+norm,error,42.0,55.2,66.5,92.0,46.2,0.619,212
+lexical+norm,reference,78.8,90.3,96.3,100.0,81.9,0.891,321
+labse,error,45.3,55.2,67.0,88.2,49.5,0.639,212
+labse,reference,76.3,86.9,93.1,98.4,79.4,0.873,321
+labse+norm,error,45.8,55.7,64.6,89.6,49.5,0.64,212
+labse+norm,reference,76.0,87.2,93.5,98.1,79.1,0.872,321
+hybrid+norm a=0.5,error,43.9,56.1,65.1,93.4,48.1,0.633,212
+hybrid+norm a=0.5,reference,78.8,89.4,95.3,100.0,81.9,0.891,321

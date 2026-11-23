@@ -131,7 +131,27 @@ access to a commercial API.
 | gold (oracle) | 5.26 | 1.07 | 100 | 0.0 | – | – | – |
 
 ### 4.3 Evidence retrieval
-[TODO – LaBSE, top-k.]
+For each claim we rank the sentences of the source document and retain the top-k (k = 3) as
+evidence, comparing a character 2–4-gram TF-IDF scorer, LaBSE sentence embeddings (Feng et al.,
+2022), and a linear interpolation of both, each with and without script normalisation
+(Devanagari-to-ASCII digits, nukta removal, lowercasing). Because the benchmark has no evidence
+annotations, gold evidence is derived from key-fact overlap, using the original value for
+corrupted claims and the polarity sentence for claims without key facts. Configurations were
+selected on the development set with a pre-specified order of criteria (full recall@3, MRR,
+recall@3 in a pooled stress test, simplicity), which selected the lexical scorer.
+
+| Test (own source) | full R@1 ref/err | full R@3 ref/err | MRR err |
+|---|---|---|---|
+| lexical (selected) | 96.9 / 95.3 | 100 / 100 | 0.998 |
+| LaBSE | 96.9 / 93.4 | 100 / 100 | 0.987 |
+| hybrid+norm α=0.5 | 96.9 / 95.8 | 100 / 100 | 1.000 |
+
+| Test (pooled stress) | full R@3 ref | full R@3 err | number claims R@1 |
+|---|---|---|---|
+| lexical | 93.1 | 67.0 | 52.4 |
+| lexical+norm | 96.3 | 66.5 | 64.6 |
+| LaBSE | 93.1 | 67.0 | 61.9 |
+| hybrid+norm α=0.5 | 95.3 | 65.1 | 66.0 |
 
 ### 4.4 Verification
 [TODO – multilingual NLI + rule checks (numbers, dates, negation, entities) and the decision rule.]

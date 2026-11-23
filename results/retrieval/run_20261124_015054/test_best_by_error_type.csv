@@ -1,0 +1,5 @@
+error_type,full_recall@1,full_recall@2,full_recall@3,full_recall@5,hit@1,mrr,n
+date_swap,90.9,100.0,100.0,100.0,100.0,1.0,55
+entity_swap,89.8,95.9,100.0,100.0,98.0,0.99,49
+negation,100.0,100.0,100.0,100.0,100.0,1.0,49
+number_swap,100.0,100.0,100.0,100.0,100.0,1.0,59

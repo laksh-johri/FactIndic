@@ -1,0 +1,5 @@
+config,digits,full_recall@1,full_recall@2,full_recall@3,full_recall@5,hit@1,mrr,n
+labse,devanagari,94.7,99.2,100.0,100.0,98.5,0.991,131
+labse,western,95.8,99.8,100.0,100.0,99.3,0.996,402
+labse+norm,devanagari,95.4,100.0,100.0,100.0,99.2,0.996,131
+labse+norm,western,95.8,98.3,100.0,100.0,99.3,0.996,402

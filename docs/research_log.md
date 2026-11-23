@@ -370,3 +370,180 @@ organisation + person + date + place into one clause, which cannot be separated 
   are made) to measure that component's effect.
 * **Localisation:** pointing to *where* the error is. "Claim #2 is wrong" is far more useful
   than "this summary is wrong", and it is what makes selective repair possible.
+
+---
+
+## Step 3 – Evidence retrieval (2026-11-24)
+
+> Results folder: `results/retrieval/run_20261124_015054/`. No API key needed (LaBSE runs locally).
+
+### 1. What I built
+For every claim, the retriever ranks the sentences of the source article and returns the top-k
+(k = 3) as evidence, each with its score and character position in the source. Three scorers
+are implemented: **lexical** (character n-gram TF-IDF – compares surface spelling), **LaBSE**
+(multilingual sentence embeddings – compares meaning) and **hybrid** (a weighted mix). A shared
+text normaliser (`src/textnorm.py`) can convert Devanagari digits to 0-9, drop the nukta and
+lowercase before scoring; it will be reused by the rule checks. The experiment evaluates 13
+configurations on dev, picks one with a rule fixed in advance, reports test results, and adds a
+harder "pooled" stress test because the normal setting turned out to be too easy.
+
+### 2. Files created / changed
+| File | Purpose | Key functions |
+|---|---|---|
+| `src/textnorm.py` | Script-aware normalisation | `normalize()`, `normalize_digits()`, `strip_nukta()` |
+| `src/retrieve.py` | Retrieval | `Retriever.retrieve()`, `.retrieve_many()`, `.score()`, `Embedder.encode()` (disk-cached LaBSE), `lexical_scores()`, `split_source()`, `Evidence` |
+| `experiments/run_retrieval.py` | Gold-evidence derivation, metrics, dev selection, stress test | `build_items()`, `relevant_sets()`, `build_pools()`, `score_items()`, `agg()` |
+| `tests/test_retrieve.py` | 8 tests (normaliser, 7 sentences per source, lexical ranking, embedding cache, Devanagari-digit retrieval for all 3 methods) – uses a fake embedding model, so no download | |
+| `config.yaml` | `retrieval.method: lexical`, `normalize: false`, `alpha: 0.5` (selected on dev) | |
+| `cache/embeddings_sentence-transformers__LaBSE.pkl` | LaBSE vectors cache (git-ignored) | |
+
+### 3. How it works
+1. **Split the source** into sentences with the Step 2 splitter (every article → exactly 7
+   sentences: 5 template sentences + 2 fillers; checked by a test).
+2. **Score** every (claim, sentence) pair:
+   * *lexical*: break both texts into overlapping 2–4-character pieces ("टीम", "ीम ", …), weight
+     rare pieces higher (TF-IDF), compare with cosine similarity;
+   * *LaBSE*: turn each text into a 768-number vector that captures meaning, compare with cosine;
+   * *hybrid*: `alpha · LaBSE + (1 − alpha) · lexical`.
+3. **Rank** sentences by score and return the top-k.
+
+**Gold evidence (how we know the right answer).** The dataset has no evidence labels, so they are
+derived: a claim's *facts* are the key-fact values it contains (for an error claim the *original*
+value is added, because retrieval should find the sentence that disproves it). A sentence is
+relevant for a fact if it contains it (digits normalised). Claims with no key fact are polarity
+claims ("…घोषणा नहीं की"); their relevant sentence is the one generated from the `{pol}` template
+sentence. **full_recall@k** = all of a claim's facts are covered by the top-k sentences (some
+claims need two sentences, e.g. in sports the date/place/team are in S0 but the captain is in S1).
+
+**Worked example (`hi013-E3`, number swap, source written in Devanagari digits).**
+Claim: *टीम ने 152 रन बनाए।* (the source says २५३ runs).
+
+| Rank | lexical score | LaBSE score | Sentence |
+|---|---|---|---|
+| 1 | 0.372 | 0.725 | S2 टीम ने पहले बल्लेबाज़ी करते हुए **२५३** रन बनाए। ✅ (the evidence that disproves the claim) |
+| 2 | 0.226 | 0.711 | S3 विपक्षी टीम केवल **१२५** रन ही बना सकी। (distractor number) |
+| 3 | 0.145 | 0.508 | S1 कप्तान नेहा गुप्ता ने टीम का नेतृत्व किया। |
+
+Both methods rank the right sentence first, but the distractor is second, and LaBSE separates
+them by only 0.014. The verifier (next step) must therefore look at the *right* sentence, not
+just "any number in the top-3".
+
+### 4. Design decisions & why
+| Decision | Alternatives | Why |
+|---|---|---|
+| Char 2–4-gram TF-IDF as the lexical scorer | BM25 on words | Words break on spelling noise (*mein/me*, *बेरोज़गारी/बेरोजगारी*) and on unsegmented Hinglish; character pieces still overlap. No tokenizer needed for either script. |
+| IDF fitted per article (its sentences + its claims) | One global IDF | Self-contained and deterministic; no information from other articles or from test data. |
+| Evaluate error claims too | Reference claims only | In the real pipeline we retrieve evidence for *wrong* claims; a swapped name could pull retrieval to the wrong sentence. |
+| Pre-registered selection order: full_recall@3 → MRR → stress recall@3 → simplicity | Pick the best number | 10 of 13 configs tied on dev; without a fixed rule the "winner" would be arbitrary (the first run picked α = 0.1 only because of table order). I wrote the rule before seeing stress results. |
+| Pooled stress test | Only the normal setting | The normal setting has a ceiling (7 candidate sentences, all methods 100 % at k = 3). Pooling all same-language × domain × split articles creates near-duplicate distractors (same template, different names/numbers), which shows *how* methods differ. Pools never mix dev and test. |
+| Keep k = 3 | k = 1 | full_recall@1 is capped below 100 % because ~12 % of date claims need two sentences. |
+| Cache LaBSE vectors by sha256(text) | Re-encode each run | Re-running all 13 configs costs seconds instead of minutes; same text → same vector. |
+
+### 5. How to verify it yourself
+```bash
+venv\Scripts\python -m pytest tests/test_retrieve.py -v       # 8 passed (no model download)
+venv\Scripts\python -m pytest -q                               # 41 passed
+venv\Scripts\python -m experiments.run_retrieval               # ~3 min first time (LaBSE), then fast
+#  772 claims (464 reference, 308 error); articles with !=7 source sentences: 0
+#  ==> selected on dev: lexical
+venv\Scripts\python -c "from src.retrieve import Retriever; [print(e.rank, round(e.score,3), e.text) for e in Retriever().retrieve('टीम ने 152 रन बनाए।', 'टीम ने पहले बल्लेबाज़ी करते हुए २५३ रन बनाए। विपक्षी टीम केवल १२५ रन ही बना सकी।')]"
+```
+
+### 6. Results
+**Dev selection (239 claims).** All lexical and hybrid (α ≤ 0.8) configs tie at
+full_recall@3 = 100 %, MRR = 1.000; LaBSE alone is marginally lower (MRR 0.996, hit@1 99.2 %).
+Stress recall@3 ties at 99.2 % for lexical, lexical+norm, hybrid α = 0.1/0.2 → simplicity picks
+**lexical**.
+
+**Test – own source (pipeline setting; 321 reference + 212 error claims).**
+| Config | full_recall@1 (ref / err) | full_recall@3 (ref / err) | hit@1 err | MRR err |
+|---|---|---|---|---|
+| **lexical (selected)** | 96.9 / 95.3 | 100 / 100 | 99.5 | 0.998 |
+| lexical+norm | 96.9 / 95.3 | 100 / 100 | 99.5 | 0.998 |
+| labse | 96.9 / 93.4 | 100 / 100 | 97.6 | 0.987 |
+| labse+norm | 96.9 / 93.9 | 100 / 100 | 98.1 | 0.991 |
+| hybrid+norm α=0.5 | 96.9 / 95.8 | 100 / 100 | 100 | 1.000 |
+
+No condition (language, Devanagari digits, spelling noise) drops below 100 % full_recall@3.
+
+**Test – pooled stress test (5–6 near-duplicate articles per pool, 35–42 candidate sentences).**
+| Config | full_recall@3 ref | full_recall@3 err | MRR ref | number claims R@1 | polarity claims R@3 |
+|---|---|---|---|---|---|
+| lexical | 93.1 | 67.0 | 0.847 | 52.4 | 65.0 |
+| lexical+norm | **96.3** | 66.5 | **0.891** | 64.6 | 65.7 |
+| labse | 93.1 | 67.0 | 0.873 | 61.9 | 62.0 |
+| labse+norm | 93.5 | 64.6 | 0.872 | 64.6 | 64.2 |
+| hybrid+norm α=0.5 | 95.3 | 65.1 | 0.891 | 66.0 | 65.0 |
+
+**Interpretation.**
+* In the real pipeline setting retrieval is *not* a bottleneck: with k = 3 every claim gets all
+  the evidence it needs, for every method. Any later errors come from verification, not retrieval.
+* The stress test shows where methods differ: **digit normalisation** helps lexical retrieval of
+  number claims (R@1 52.4 → 64.6) because "२५३" and "253" share no characters otherwise.
+  LaBSE handles digit scripts somewhat on its own (61.9 without normalisation).
+* **Error claims are much harder** in the stress setting (≈65–67 % vs 93–96 %): a claim containing
+  a wrong value pulls retrieval towards other articles' sentences. In the normal setting this
+  does not happen because all candidates come from the right article.
+* Polarity claims are almost impossible to tell apart in pools (same template, only नहीं differs),
+  which is expected and not a weakness of any method.
+
+### 7. For the research paper → **Methodology** (evidence retrieval), **Experimental Setup**, **Results**
+1. For each claim we rank the sentences of the source document and retain the top-k (k = 3) as
+   evidence, comparing a character 2–4-gram TF-IDF scorer, LaBSE sentence embeddings, and a
+   linear interpolation of both, each with and without script normalisation (Devanagari-to-ASCII
+   digits, nukta removal, lowercasing).
+2. Because the benchmark has no evidence annotations, we derive gold evidence from key-fact
+   overlap, using the original value for corrupted claims and the polarity sentence for claims
+   without key facts.
+3. Configurations were selected on the development set using a pre-specified order of criteria
+   (full recall@3, MRR, recall@3 in a pooled stress test, and simplicity), which selected the
+   lexical scorer.
+4. On the test set, all configurations retrieve complete evidence for every claim at k = 3
+   (full recall@3 = 100 %), indicating that retrieval is not a bottleneck when candidates are
+   restricted to the source document.
+5. In a harder pooled setting with near-duplicate distractor articles, digit normalisation
+   improves top-1 recall for numeric claims from 52.4 % to 64.6 % for the lexical scorer, and
+   recall for corrupted claims drops to roughly 65–67 % for all methods, showing that erroneous
+   content can mislead retrieval when distractors are present.
+
+### 8. Limitations / things to watch
+* **Ceiling effect.** 7-sentence sources make the main setting trivial; the benchmark cannot
+  separate retrieval methods there. Real articles are longer and paraphrased – LaBSE's
+  advantage (meaning over spelling) is expected to matter more on real data and is under-tested
+  here.
+* **Selected method is "lexical" without normalisation**, but lexical+norm ties on every dev
+  criterion except stress MRR (0.887 vs 0.866), and is clearly better for numbers in the stress
+  test. Since our rule did not include stress MRR, we keep the rule's result; switching later
+  is a one-line config change and would not change pipeline results at k = 3.
+* **Gold evidence is derived automatically** from key facts and template positions; it is exact
+  for this synthetic data but would need human annotation on real data.
+* Hybrid scores mix two different scales (TF-IDF cosine ≈ 0.1–0.4, LaBSE cosine ≈ 0.5–0.9), so α
+  is not an intuitive "percentage of LaBSE".
+* Differences of < 1 point on 212–321 claims are 1–3 claims and not meaningful.
+* LaBSE download (1.8 GB) is needed once; afterwards runs offline.
+
+### 9. Concepts to understand
+* **Information retrieval & ranking:** given a query (the claim), order a collection (source
+  sentences) by relevance. We keep the top-k.
+* **Recall@k:** "is the right answer among the first k results?" Our *full* recall@k requires
+  *all* needed sentences to be there (a claim may need two).
+* **MRR (Mean Reciprocal Rank):** if the first relevant result is at rank 1 you score 1, at rank 2
+  you score ½, rank 3 → ⅓, … averaged over claims. 1.0 = always first.
+* **TF-IDF:** a way to turn text into numbers: count pieces (TF = term frequency) and down-weight
+  pieces that appear everywhere (IDF = inverse document frequency), so distinctive pieces matter
+  more.
+* **Character n-grams:** overlapping chunks of n characters. "kiya" and "kia" share "ki", so
+  spelling variants still look similar – useful for noisy Hinglish.
+* **Sentence embeddings & LaBSE:** a neural network maps a sentence to a vector (here 768
+  numbers) so that sentences with similar meaning get similar vectors – even across languages
+  and scripts. LaBSE (Language-agnostic BERT Sentence Embedding, Feng et al., 2022) was trained
+  on translation pairs in 109 languages.
+* **Cosine similarity:** the angle between two vectors: 1 = same direction (very similar), 0 =
+  unrelated. It ignores length, so long and short sentences can still match.
+* **Ceiling effect:** when a test is so easy that every method scores ~100 %, it cannot tell them
+  apart. The fix is a harder test (our stress test).
+* **Pre-registration of selection criteria:** deciding *before* looking at results how you will
+  pick the winner, so you cannot (even unconsciously) choose the rule that makes your favourite
+  look best.
+* **Hard negatives / distractors:** wrong candidates that look very similar to the right one (same
+  template, different number). They are what makes retrieval difficult in practice.

@@ -1,0 +1,43 @@
+{
+  "timestamp": "20261124_015054",
+  "selected": "lexical",
+  "selected_kwargs": {
+    "method": "lexical",
+    "normalize_text": false
+  },
+  "config": {
+    "seed": 42,
+    "data": {
+      "articles": "data/factindic_synth_articles.jsonl",
+      "errors": "data/factindic_synth_errors.jsonl"
+    },
+    "models": {
+      "embedder": "sentence-transformers/LaBSE",
+      "nli": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+      "llm": "gemini-2.5-flash"
+    },
+    "llm": {
+      "cache_path": "cache/llm_cache.json",
+      "log_path": "results/llm_calls.csv",
+      "max_retries": 5,
+      "backoff_base_seconds": 2.0,
+      "max_output_tokens": 1024
+    },
+    "decomposition": {
+      "method": "clause"
+    },
+    "retrieval": {
+      "top_k": 3,
+      "method": "hybrid",
+      "normalize": true,
+      "alpha": 0.5
+    },
+    "verification": {
+      "nli_threshold": 0.5
+    },
+    "paths": {
+      "results": "results",
+      "cache": "cache"
+    }
+  }
+}

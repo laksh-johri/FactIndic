@@ -1,0 +1,7 @@
+language,digits,noise,full_recall@1,full_recall@2,full_recall@3,full_recall@5,hit@1,mrr,n
+hindi,devanagari,False,95.0,100.0,100.0,100.0,100.0,1.0,80
+hindi,devanagari,True,98.0,100.0,100.0,100.0,100.0,1.0,51
+hindi,western,False,93.7,100.0,100.0,100.0,100.0,1.0,63
+hindi,western,True,100.0,100.0,100.0,100.0,100.0,1.0,74
+hinglish,western,False,96.7,99.2,100.0,100.0,99.2,0.996,122
+hinglish,western,True,95.1,99.3,100.0,100.0,100.0,1.0,143
