@@ -1,0 +1,7 @@
+method,language,n_claims,fact_coverage,facts_per_claim,atomic_rate,context_dep_rate,localised,collateral_facts,touched_share
+clause,hindi,3.66,100.0,1.37,69.57,21.12,100.0,0.71,28.06
+clause,hinglish,3.64,100.0,1.38,68.75,20.62,100.0,0.94,30.56
+gold,hindi,5.27,100.0,1.06,76.72,0.0,,,
+gold,hinglish,5.25,100.0,1.07,76.19,0.0,,,
+sentence,hindi,3.0,100.0,1.67,66.67,3.79,100.0,1.1,34.21
+sentence,hinglish,3.0,100.0,1.67,66.67,3.79,100.0,1.27,36.71

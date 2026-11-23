@@ -1,0 +1,2 @@
+timestamp,prompt_hash,model,temperature,latency_s,input_tokens,output_tokens,cache,status
+2026-11-24T01:22:57,bbffbeb0ed2ee945,gemini-2.5-flash,0.0,0.0,,,miss,no_api_key

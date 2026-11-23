@@ -108,9 +108,39 @@ between faithful and corrupted versions of the same article.
 ![error types](../results/dataset_stats/error_types_by_language.png)
 
 ## 4. Methodology
-[TODO – 4.1 summary generation; 4.2 claim decomposition; 4.3 evidence retrieval (LaBSE, top-k);
-4.4 verification: multilingual NLI + rule checks (numbers, dates, negation, entities) and the
-decision rule; 4.5 selective repair; 4.6 re-verification and human-review routing.]
+[TODO – overview figure of the pipeline.]
+
+### 4.1 Summary generation
+[TODO – not used in the main experiments: candidate summaries are given by the benchmark.]
+
+### 4.2 Claim decomposition
+We decompose each summary into claims with a rule-based splitter that first segments sentences
+using script-aware terminators (।, ., ?, !) with an abbreviation list covering both Latin (*Dr.*)
+and Devanagari (*डॉ.*) forms, and then splits sentences at clause boundaries defined as a comma
+followed by a Hindi or romanised-Hindi connective (e.g., *जिसके/jiske*, *जहाँ/jahan*,
+*यह/yeh*). Each claim retains its character offsets in the summary, which allows errors to be
+localised to a single claim and enables span-restricted repair. We compare this clause-level
+splitter with a sentence-level baseline and with the gold atomic claims as an oracle upper bound;
+an LLM-based decomposer is implemented but not evaluated, since all experiments run without
+access to a commercial API.
+
+| Method (test) | claims/summary | facts/claim | fact coverage % | context-dependent % | error localised % | collateral facts | text touched % |
+|---|---|---|---|---|---|---|---|
+| sentence | 3.00 | 1.67 | 100 | 3.8 | 100 | 1.19 | 35.5 |
+| clause | 3.65 | 1.37 | 100 | 20.9 | 100 | 0.83 | 29.3 |
+| gold (oracle) | 5.26 | 1.07 | 100 | 0.0 | – | – | – |
+
+### 4.3 Evidence retrieval
+[TODO – LaBSE, top-k.]
+
+### 4.4 Verification
+[TODO – multilingual NLI + rule checks (numbers, dates, negation, entities) and the decision rule.]
+
+### 4.5 Selective repair
+[TODO]
+
+### 4.6 Re-verification and human-review routing
+[TODO]
 
 ## 5. Experimental Setup
 [TODO – models and versions (config.yaml), hardware (CPU), dev-only tuning protocol, baselines

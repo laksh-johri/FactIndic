@@ -17,6 +17,9 @@ llm:
   backoff_base_seconds: 2.0       # wait = base * 2**attempt (+ jitter)
   max_output_tokens: 1024
 
+decomposition:
+  method: clause                  # sentence | clause | gold (oracle) | llm (needs API key)
+
 retrieval:
   top_k: 3
 

@@ -1,0 +1,7 @@
+method,split,n_claims,fact_coverage,facts_per_claim,atomic_rate,context_dep_rate,localised,collateral_facts,touched_share
+clause,dev,3.58,100.0,1.4,68.53,20.28,100.0,0.91,30.4
+clause,test,3.65,100.0,1.37,69.16,20.87,100.0,0.83,29.31
+gold,dev,5.22,100.0,1.08,75.6,0.0,,,
+gold,test,5.26,100.0,1.07,76.46,0.0,,,
+sentence,dev,3.0,100.0,1.67,66.67,5.0,100.0,1.25,36.51
+sentence,test,3.0,100.0,1.67,66.67,3.79,100.0,1.19,35.46

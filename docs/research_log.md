@@ -219,3 +219,154 @@ Draft sentences:
   drops more information.
 * **Unit test:** a tiny automatic check of one function ("if I corrupt a span, does `validate()`
   notice?"). We run them after every change so new code can't silently break old code.
+
+---
+
+## Step 2 – Claim decomposition without an LLM (2026-11-24)
+
+> Run without a Gemini API key, by decision of the author. The `llm` method is implemented
+> and unit-tested with a fake backend, but was **not evaluated**; it skips with a clear message.
+> Results folder: `results/decomposition/run_20261124_012257/`.
+
+### 1. What I built
+A module that breaks a summary into small claims that can each be checked against the source.
+It has four interchangeable methods: `sentence` (one claim per sentence, the simplest baseline),
+`clause` (sentences further split at ", + connective word" such as *जिसके / jiske / जहाँ /
+yeh*), `gold` (the hand-made claims in the dataset, used as an "oracle" upper bound), and `llm`
+(Gemini, for later). Rule-based claims remember their exact character position in the summary,
+so later steps can say *which* claim holds the error and repair only that span. An experiment
+script measures how atomic, complete and self-contained the claims are, and whether each
+injected error lands in exactly one claim.
+
+### 2. Files created / changed
+| File | Purpose | Key functions |
+|---|---|---|
+| `src/decompose.py` | Claim decomposition | `decompose()` (dispatcher), `sentence_spans()`, `clause_spans()`, `decompose_sentence/clause/gold/llm()`, `is_context_dependent()`, `claims_overlapping()`, `Claim` dataclass |
+| `experiments/run_decomposition.py` | Compare methods; write tables | `reference_rows()`, `error_rows()`, `summarise()` |
+| `tests/test_decompose.py` | 13 tests (abbreviations, decimals, clause split, span alignment, every error localised, LLM path with fake backend) | |
+| `config.yaml` | new `decomposition.method: clause` | |
+| `results/decomposition/run_<ts>/` | `claims_reference.jsonl`, `error_localisation.jsonl`, 3 CSV tables, `results.md`, `config.json` | |
+
+### 3. How it works
+1. **Sentence split.** Walk through the text; a `।`, `॥`, `.`, `!` or `?` followed by a space
+   (or the end) ends a sentence, *unless* the "." belongs to an abbreviation (`Dr.`, `डॉ.`,
+   `Prof.`, …) or a single-letter initial (`A. K. Singh`). Decimals such as `3.5` are safe
+   because no space follows the dot. This matters: `Dr.`/`डॉ.` occur 48 times in our data.
+2. **Clause split.** Inside each sentence, split at a comma followed by a connective word from
+   a fixed list of Hindi and romanised connectives (relative words *जिसके, जिसकी, जहाँ, जो /
+   jiske, jiski, jahan, jo*; conjunctions *और, लेकिन, जबकि / aur, lekin, jabki*; demonstrative
+   *यह / yeh*). A comma *without* a connective (e.g. the list "Rajesh, Sunita aur Amit") is not
+   split. The first part gets a sentence terminator added (`।` if the text contains Devanagari,
+   else `.`).
+3. Each claim stores `(start, end)` in the summary. For an error row, the claim(s) overlapping
+   `[span_start, span_end)` are the error claim(s).
+
+**Worked example (`hi025-E3`, entity swap, test split).** The candidate summary says the camp
+in-charge was डॉ. **नेहा गुप्ता**, but the source says डॉ. **विकास यादव**.
+
+| Method | Claims (error claim marked ⚠) |
+|---|---|
+| sentence | #1 (0–118) संजीवनी मेडिकल कॉलेज ने 18 सितंबर 2024 को ग्वालियर में मुफ़्त स्वास्थ्य शिविर लगाया, जिसके प्रभारी डॉ. नेहा गुप्ता थे। ⚠ · #2 शिविर में 1080 मरीज़ों की जाँच की गई। · #3 किसी गंभीर बीमारी का मामला सामने नहीं आया। |
+| clause | #1 (0–83) संजीवनी मेडिकल कॉलेज ने 18 सितंबर 2024 को ग्वालियर में मुफ़्त स्वास्थ्य शिविर लगाया। · #2 (85–118) जिसके प्रभारी डॉ. नेहा गुप्ता थे। ⚠ · #3 … · #4 … |
+
+With `sentence`, the error claim also carries the college, the date and the city, so NLI must
+judge four facts at once and a repair would rewrite 59 % of the summary. With `clause`, the
+error claim contains only the wrong name (17 % of the text). `डॉ.` did not cause a false
+sentence break. The price: claim #2 starts with *जिसके* ("whose"), so on its own it does not
+say *whose* in-charge – it is context-dependent.
+
+### 4. Design decisions & why
+| Decision | Alternatives | Why |
+|---|---|---|
+| Rule-based `clause` as default | LLM decomposition; dependency parser (Stanza/spaCy) | No API key (author's choice). Parsers for romanised Hinglish are unreliable and add a heavy dependency; a connective list works for both scripts and is fully transparent. |
+| Keep character spans | Return plain strings | Needed for localising errors and for "repair ONLY the flagged claim". LLM/gold claims are rewritten text, so they get `start=end=-1`. |
+| Split only at comma + connective | Split at every comma; split at every *और/aur* | Every-comma splitting breaks lists; splitting on bare *और* breaks noun phrases ("हिंदी और अंग्रेज़ी"). |
+| Abbreviation list incl. `डॉ.` | Naive split on "." | Hindi uses "।" for sentences but "." in `डॉ.`; Hinglish uses "." for both. A naive split would cut 24 summaries in the middle of a name. |
+| Do not resolve pronouns | Replace *उन्होंने/Unhone* with the previous subject | Finding the right antecedent needs NER/coreference; a wrong guess would *create* an error. We measure the problem instead (`context_dep_rate`) and let retrieval + NLI see the evidence. |
+| Include `gold` as an oracle | Only compare system methods | Shows the ceiling and how far rule-based splitting is from truly atomic claims. |
+| Report dev and test | Report test only | Nothing is tuned in this step, so both are clean; test is the headline. |
+
+### 5. How to verify it yourself
+```bash
+venv\Scripts\python -m pytest tests/test_decompose.py -v        # 13 passed
+venv\Scripts\python -m experiments.run_decomposition --methods sentence clause gold llm
+#  [ok] sentence: 384 claims | [ok] clause: 464 claims | [ok] gold: 672 claims
+#  [skip] method=llm: LLMConfigError: GEMINI_API_KEY is not set ...
+venv\Scripts\python -m pytest -q                                 # 33 passed (whole project)
+```
+
+### 6. Results (test split: 88 reference summaries, 264 error summaries)
+| Method | claims / summary | facts / claim | atomic (≤1 fact) % | fact coverage % | context-dependent % | error localised % | collateral facts in error claim | text touched by repair % |
+|---|---|---|---|---|---|---|---|---|
+| sentence | 3.00 | 1.67 | 66.7 | 100 | 3.8 | 100 | 1.19 | 35.5 |
+| **clause** | 3.65 | 1.37 | 69.2 | 100 | 20.9 | 100 | 0.83 | 29.3 |
+| gold (oracle) | 5.26 | 1.07 | 76.5 | 100 | 0.0 | – | – | – |
+
+By error type (test, sentence → clause): for **date swaps** collateral facts drop 3.00 → 2.22
+and text touched 57 % → 43 %; for **entity swaps** 3.00 → 1.94 and 57 % → 40 %. Number,
+negation and addition errors already sit in short sentences (≈0 collateral facts, ≈21 % of
+text) under both methods. Dev numbers are within ±1 point of test; Hindi and Hinglish behave
+almost identically.
+
+**Interpretation.** Both rule-based methods lose no information (100 % coverage) and put every
+error into exactly one claim. Clause splitting makes claims more focused but makes 1 in 5
+claims context-dependent. Neither reaches the oracle: the first sentence of each summary packs
+organisation + person + date + place into one clause, which cannot be separated without
+*rewriting* the sentence – exactly what an LLM decomposer would add.
+
+### 7. For the research paper → **Methodology** (claim decomposition) and **Results** (ablation)
+1. We decompose each summary into claims with a rule-based splitter that first segments
+   sentences using script-aware terminators (।, ., ?, !) with an abbreviation list covering
+   both Latin (*Dr.*) and Devanagari (*डॉ.*) forms, and then splits sentences at clause
+   boundaries defined as a comma followed by a Hindi or romanised-Hindi connective (e.g.,
+   *जिसके/jiske*, *जहाँ/jahan*, *यह/yeh*).
+2. Each claim retains its character offsets in the summary, which allows errors to be
+   localised to a single claim and enables span-restricted repair.
+3. We compare this clause-level splitter with a sentence-level baseline and with the gold
+   atomic claims as an oracle upper bound.
+4. On the test set, clause-level decomposition yields 3.65 claims per summary (vs. 3.00 for
+   sentences and 5.26 for gold claims), preserves all key facts, and localises every injected
+   error to exactly one claim, while reducing the number of unrelated key facts sharing the
+   erroneous claim from 1.19 to 0.83.
+5. However, 20.9 % of clause-level claims begin with a pronoun or relative marker and are
+   therefore not self-contained, which motivates retrieving evidence from the full source
+   rather than verifying claims in isolation.
+
+### 8. Limitations / things to watch
+* **Built for our templates.** The connective list comes from general Hindi grammar, but I
+  inspected sample summaries (from both splits) before writing it, and our synthetic summaries
+  happen to use exactly these constructions. Results are optimistic; real LLM summaries will
+  have more varied clause boundaries (no commas, participle clauses, *ki* clauses).
+* **Not truly atomic.** 1.37 facts per claim vs 1.07 for gold; date/entity errors still share
+  their claim with ~2 other facts, so NLI must judge a multi-fact claim.
+* **"Atomic ≤ 1 fact" is an imperfect measure.** Relational claims ("X is president of Y")
+  legitimately contain two facts – that is why even gold scores only 76 %.
+* **Pronouns unresolved** (20.9 % context-dependent claims). A claim like "जिसके प्रभारी डॉ. X
+  थे" can only be verified if retrieval brings back the right source sentence.
+* **100 % localisation is partly by construction:** each injected error lies inside one
+  template sentence. Real errors may span several claims.
+* Fact matching uses exact substrings of key-fact values; fine for rule-based claims (copied
+  text) but would undercount an LLM decomposer that paraphrases or transliterates names.
+* Two generator phrasings are slightly unnatural Hindi ("कोई शुल्क लिया जाता नहीं है"); harmless
+  for decomposition, but worth fixing if the dataset is regenerated.
+* The `llm` method is untested on real model outputs.
+
+### 9. Concepts to understand
+* **Claim decomposition / atomic facts:** checking a long sentence is hard because one wrong
+  part makes the whole sentence "wrong" but you don't know *which* part. Cutting it into small
+  claims gives fine-grained verdicts. This idea comes from FActScore (Min et al., 2023).
+* **Sentence segmentation:** sounds trivial but isn't – a "." can end a sentence, an
+  abbreviation (`Dr.`) or a number (`3.5`). Hindi uses the *danda* `।` as its full stop.
+* **Clause:** a part of a sentence with its own verb. "The camp was held, *whose in-charge was
+  Dr. X*" has two clauses → two claims.
+* **Connective:** a word that links clauses (*and, but, which, where* / *और, लेकिन, जिसके,
+  जहाँ*).
+* **Decontextualisation & coreference:** "*He* did not announce an alliance" – to check it
+  alone you need to know who "he" is. Replacing pronouns with the person they refer to is
+  called coreference resolution; we measure the problem but do not solve it yet.
+* **Oracle / upper bound:** using the perfect answer (gold claims) to see the best possible
+  result. If even the oracle performs poorly later, the bottleneck is not decomposition.
+* **Ablation:** comparing versions of a system that differ in one component (here: how claims
+  are made) to measure that component's effect.
+* **Localisation:** pointing to *where* the error is. "Claim #2 is wrong" is far more useful
+  than "this summary is wrong", and it is what makes selective repair possible.

@@ -1,0 +1,11 @@
+method,error_type,rows,localised,collateral_facts,touched_share
+clause,date_swap,55,100.0,2.22,42.99
+clause,entity_swap,49,100.0,1.94,39.83
+clause,negation,49,100.0,0.0,21.6
+clause,number_swap,59,100.0,0.02,20.31
+clause,unsupported_addition,52,100.0,0.0,22.4
+sentence,date_swap,55,100.0,3.0,57.17
+sentence,entity_swap,49,100.0,3.0,57.06
+sentence,negation,49,100.0,0.0,21.6
+sentence,number_swap,59,100.0,0.02,20.31
+sentence,unsupported_addition,52,100.0,0.0,22.4
