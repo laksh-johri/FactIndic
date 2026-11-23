@@ -1,0 +1,4 @@
+language,articles,devanagari_digits,spelling_noise
+hindi,64,29,31
+hinglish,64,0,35
+all,128,29,66

@@ -1,0 +1,4 @@
+language,article_words,article_chars,summary_words,summary_chars,compression_ratio_words
+hindi,77.1,396.5,35.4,186.0,2.2
+hinglish,77.4,443.0,35.2,204.8,2.2
+all,77.2,419.7,35.3,195.4,2.2

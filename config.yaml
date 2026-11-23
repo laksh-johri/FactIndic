@@ -1,0 +1,28 @@
+# FactIndic central configuration. Model names / paths / hyper-parameters live here only.
+seed: 42
+
+data:
+  articles: data/factindic_synth_articles.jsonl
+  errors: data/factindic_synth_errors.jsonl
+
+models:
+  embedder: sentence-transformers/LaBSE
+  nli: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7
+  llm: gemini-2.5-flash          # change here if you want another Gemini model
+
+llm:
+  cache_path: cache/llm_cache.json
+  log_path: results/llm_calls.csv
+  max_retries: 5
+  backoff_base_seconds: 2.0       # wait = base * 2**attempt (+ jitter)
+  max_output_tokens: 1024
+
+retrieval:
+  top_k: 3
+
+verification:
+  nli_threshold: 0.5              # placeholder; tune on DEV only (Step 6)
+
+paths:
+  results: results
+  cache: cache

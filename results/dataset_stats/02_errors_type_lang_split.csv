@@ -1,0 +1,8 @@
+error_type,hindi_dev,hindi_test,hinglish_dev,hinglish_test,total
+none,20,44,20,44,128
+number_swap,9,32,9,27,77
+date_swap,10,26,12,29,77
+entity_swap,14,22,14,27,77
+negation,14,27,14,22,77
+unsupported_addition,13,25,11,27,76
+total,80,176,80,176,512

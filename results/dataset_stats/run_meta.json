@@ -1,0 +1,36 @@
+{
+  "timestamp": "20261124_011250",
+  "config": {
+    "seed": 42,
+    "data": {
+      "articles": "data/factindic_synth_articles.jsonl",
+      "errors": "data/factindic_synth_errors.jsonl"
+    },
+    "models": {
+      "embedder": "sentence-transformers/LaBSE",
+      "nli": "MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7",
+      "llm": "gemini-2.5-flash"
+    },
+    "llm": {
+      "cache_path": "cache/llm_cache.json",
+      "log_path": "results/llm_calls.csv",
+      "max_retries": 5,
+      "backoff_base_seconds": 2.0,
+      "max_output_tokens": 1024
+    },
+    "retrieval": {
+      "top_k": 3
+    },
+    "verification": {
+      "nli_threshold": 0.5
+    },
+    "paths": {
+      "results": "results",
+      "cache": "cache"
+    }
+  },
+  "data_sha256": {
+    "articles": "8428bec74b331fe00b5eadcf3f25e5f60b25e8ef8f21f5f8850268e930f2fd92",
+    "errors": "acbd28542353da5db42a56212c55ef64155abc7297ba8c63c67945a35296e3a3"
+  }
+}

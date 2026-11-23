@@ -1,0 +1,5 @@
+type,hindi,hinglish,total,share_%
+date,64,64,128,20.0
+entity,192,192,384,60.0
+number,64,64,128,20.0
+total,320,320,640,100.0
