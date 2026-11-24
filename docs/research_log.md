@@ -849,3 +849,9 @@ claims whose key facts span several sentences. Any change must be re-tuned on de
   same way as the method, not because the method is generally that good.
 * **Correlated errors / effective sample size:** 158 wrong claims that are really 43 repeated
   sentences carry much less evidence than 158 independent mistakes.
+
+**Decision recorded (2026-11-24).** The author chose option **(a)**: keep the decision rule
+exactly as specified in CLAUDE.md (SUPPORTED requires NLI entailment AND all rules passing).
+Options (b) "NLI-only rejections → REVIEW" and (c) "concat premise for multi-sentence claims"
+were considered and not adopted; they can be mentioned in the paper as future work. All later
+steps use the Step 4 configuration (`config.yaml: verification`).
