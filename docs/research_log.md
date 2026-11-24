@@ -1016,3 +1016,157 @@ which never change text). By language: exact fix 98.5 % Hindi, 97.7 % Hinglish; 
   similarity to reference, and percentage of characters changed (how invasive was the repair?).
 * **Human-in-the-loop:** the system handles what it is sure about and sends the rest to a person;
   "auto-accepted %" vs "human review %" measures the workload.
+
+---
+
+## Step 6 – Interactive Streamlit demo (2026-11-24)
+
+> No API key, no new tuning: the demo calls the same code and `config.yaml` settings as Steps 2–5.
+> No new experiment numbers; the check is that it reproduces Step 5 exactly.
+
+### 1. What I built
+A web app (`app.py`, Streamlit) that shows the whole FactIndic pipeline on one summary at a
+time. You either pick a benchmark example (filter by split, language, error type) or paste your
+own source article and summary. The app then shows, step by step:
+- the summary with every claim coloured by its verdict;
+- for each claim, the top-3 evidence sentences, the four rule checks and the NLI probabilities;
+- the repair edits as a table and as a red/green word diff;
+- the re-check of the repaired summary, with the final decision: auto-accepted or human review.
+
+For benchmark examples, a hidden-by-default "Gold answer" box shows the injected error, the
+reference summary and whether the final output is complete / lossy / erroneous.
+
+To keep the demo honest, I put the single-summary logic into its own module
+(`src/pipeline.py`), and a test checks that it gives *exactly* the Step 5 outputs for all 512
+summaries.
+
+### 2. Files created / changed
+| File | Purpose | Key functions |
+|---|---|---|
+| `src/pipeline.py` | Steps 2–6 for ONE (source, summary) pair, same components + config as the experiments | `FactIndicPipeline.verify()`, `.run()`, `ClaimResult`, `PipelineResult.to_dict()` |
+| `src/render.py` | HTML helpers: claim highlighting, verdict badges, word-level diff (all text HTML-escaped) | `highlight_claims()`, `diff_html()`, `badge()` |
+| `app.py` | Streamlit UI: input sidebar, 4 result sections, gold box, JSON download, benchmark-results tab, "how it works" tab | `sidebar_input()`, `show_result()`, `show_claim_details()`, `show_gold()`, `show_benchmark_tab()` |
+| `tests/test_pipeline.py` | 5 tests incl. **exact reproduction of all 512 Step 5 outputs** | |
+| `tests/test_render.py` | 3 tests incl. HTML-escaping of user text | |
+| `tests/test_app.py` | 3 headless app tests (Streamlit `AppTest`): default example, a number swap, own-text mode | |
+| `docs/paper_outline.md` | new §4.7 Interactive demonstrator | |
+
+### 3. How it works
+`FactIndicPipeline.run(source, summary)`:
+1. `verify()`: clause decomposition → top-3 evidence (lexical+norm) → rule checks → NLI with the
+   rank-1 evidence sentence as premise → decision rule with τ = 0.5. All settings are read from
+   `config.yaml`, and the safe vocabulary is learned from DEV only, as in Steps 4–5.
+2. `repair_summary()` on the flagged claims (Step 5).
+3. `verify()` again on the repaired text (Step 6) → `accepted` if every claim is SUPPORTED, else
+   `human_review`. An empty output also goes to human review.
+
+The app caches the pipeline object (`st.cache_resource`), so the models load once.
+Benchmark examples hit the NLI disk cache and appear instantly. New text needs the NLI model:
+the first run loaded it in a few seconds, and the full run took about 24 s on CPU.
+
+**Worked example in the app (`hi013-E3`, test, Hindi, number swap):**
+- ① **Claims and verdicts:** 3 claims; #1 CONTRADICTED, #2 CONTRADICTED, #3 SUPPORTED.
+  - Claim #2: "टीम ने 152 रन बनाए।" The numbers rule fails: 152 is not in the evidence ['125', '253'].
+  - Claim #1: CONTRADICTED by NLI alone (contradiction 0.55), while all four rules pass. This is the
+    known NLI false alarm from Step 4.
+- ② **Evidence for claim #2:** rank 1 = "टीम ने पहले बल्लेबाज़ी करते हुए २५३ रन बनाए।".
+  - Rule table: numbers ❌ fail, dates ➖ n/a, negation ✅ pass, entities ✅ pass.
+- ③ **Repair:** one row `replace number | 152 | 253 | number copied from evidence`; the diff shows
+  ~~152~~ **253**.
+  - Claim #1 shows "no edit → human review".
+- ④ **Re-check:** claims #2 and #3 are SUPPORTED, but #1 is still CONTRADICTED by NLI → "Sent to human review".
+  - Gold box: "complete – output identical to the reference".
+
+**Example with new text (not in the dataset), run with the real NLI model:**
+- **Source:** "Indore mein 5 April 2025 ko ek blood donation camp lagaya gaya. Camp mein 410 logon
+  ne blood donate kiya. … Organisers ne bataya ki kisi bhi donor se fee nahi li gayi."
+- **Summary:** "… Camp mein **140** logon ne blood donate kiya. **Donors se fee li gayi.**"
+- **Verdicts:**
+  - 140 → CONTRADICTED (numbers rule fails).
+  - "Donors se fee li gayi." → CONTRADICTED. The negation rule fails, and NLI gives contradiction
+    0.95.
+- **Output:** "… Camp mein **410** logon ne blood donate kiya. **donor** se fee **nahi** li gayi."
+  → re-check: accepted.
+- **Two imperfections visible here (see Limitations):**
+  - The entity rule treated the plural "Donors" as an unknown name and replaced it with "donor".
+  - The sentence now starts with a lowercase letter.
+
+### 4. Design decisions & why
+| Decision | Alternatives | Why |
+|---|---|---|
+| New `src/pipeline.py` used by the app | Write the logic inside `app.py`; reuse the batch experiment code | UI code is hard to test; the batch code works on DataFrames of 512 rows. A small single-pair module can be unit-tested and checked against Step 5. |
+| Exact-reproduction test on all 512 summaries | Test a few examples | Proves the demo shows *the system evaluated in the paper*, not a slightly different copy. The test uses only the NLI cache (a backend that raises proves no new model call). |
+| Settings read-only in the sidebar (no τ slider) | Let the user change τ, retriever, rules | τ and the retriever were chosen on DEV by pre-registered rules; a slider would invite "tuning by eye". This could be added later as a clearly labelled "what-if" mode. |
+| Gold answer hidden in an expander, benchmark only | Always show it | The system never sees the gold answer; hiding it first lets a viewer judge the output like a human reviewer would. |
+| HTML-escape all text | Render raw text | The app accepts free text; un-escaped text could inject HTML/JS into the page. |
+| Semi-transparent colours | Solid colours | Readable in both light and dark Streamlit themes. |
+| Default free-text example = `hg002-E3` (Hinglish location swap) | Empty boxes | Shows a working Hinglish example immediately and hits the NLI cache (fast). |
+| No summary generation (pipeline step 1) in the demo | Call Gemini | No API key; CLAUDE.md forbids hard-coded keys. When a key is added, `src/llm.py` can generate the summary first. |
+| JSON download of the full result | – | Lets a human reviewer keep the evidence + edit log; also handy for the paper's qualitative examples. |
+
+### 5. How to verify it yourself
+```bash
+venv\Scripts\python -m pytest -q                 # 75 passed (64 old + 11 new)
+venv\Scripts\streamlit run app.py                # opens http://localhost:8501
+```
+In the browser, try these:
+- Sidebar → Benchmark example → test / hindi / number_swap → `hi013-E3`. You should see 152 → 253
+  and gold outcome "complete".
+- "Your own text" → change a number in the summary → the number is flagged and repaired.
+- Tab "Benchmark results" → the Step 4 and Step 5 test tables.
+
+### 6. Results
+- **No new metrics.** This step is a tool, not an experiment.
+- **Consistency check:** the demo pipeline reproduces the Step 5 repaired text, the list of edit
+  actions and the final status (accepted / human review) for **512 / 512** summaries
+  (`tests/test_pipeline.py`).
+- **Runtime on CPU:**
+  - Benchmark examples are instant (NLI cache).
+  - New text loaded the NLI model in a few seconds; the whole run, including model load, took
+    about 24 s.
+
+### 7. For the research paper → **Methodology §4.7** (or a "System demonstration" paragraph / appendix)
+1. The full pipeline is exposed in a browser-based demonstrator that accepts either a benchmark
+   example or a user-supplied source–summary pair.
+2. For every claim it displays the verdict, the retrieved evidence sentences with their retrieval
+   scores, the outcome of each rule check and the NLI class probabilities, followed by the applied
+   edits as a word-level diff and the re-verification result.
+3. The demonstrator calls the same code and configuration as the experiments and reproduces the
+   stored repair outputs and routing decisions for all 512 benchmark summaries exactly.
+4. It runs on a CPU without any external API, which makes the evidence behind every decision
+   inspectable by a human reviewer.
+
+### 8. Limitations / things to watch
+* **The demo shows the system's weaknesses on real text.**
+  - The entity rule uses a safe vocabulary learned from our templates, so ordinary words it has
+    not seen (a plural like "Donors") count as "new entities".
+  - Repair can then lower-case the first word of a sentence.
+  - On real news text, expect many more false flags than on the benchmark.
+* **No summary generation:** pipeline step 1 needs an LLM API key, so the demo starts from a
+  given summary.
+* **First run on new text is slow:** the NLI model has to load (a few seconds here). It is cached
+  afterwards, so later runs are faster.
+* **Not a user study:** we did not measure whether the evidence display actually helps human
+  reviewers. That would be future work.
+* **Single user, local:** the NLI disk cache is written by the app; this is fine for a demo, but
+  not a production server.
+
+### 9. Concepts to understand
+* **Demo vs. experiment:**
+  - An experiment measures the system on many examples.
+  - A demo shows one example in detail, so people can *see* why the system decided something.
+  - Both must use the same code, or the demo shows a different system than the paper.
+* **Reproducibility / consistency test:** running the same inputs through two code paths and
+  checking that the outputs are identical. Here that is the batch experiment vs. the single-summary
+  pipeline.
+* **Caching:** storing results that are expensive to compute (model loading, NLI predictions) so
+  they are not recomputed.
+  - `st.cache_resource` keeps the loaded model in memory.
+  - The NLI disk cache keeps predictions between runs.
+* **Explainability through evidence:** instead of a black-box "wrong", the system shows *which*
+  source sentence, *which* rule and *which* NLI score led to the verdict. This is what "shows
+  source evidence for every decision" in our project goal means.
+* **HTML escaping:** converting characters like `<` into `&lt;` so user text is displayed as
+  text and never executed as web code.
+* **Headless UI testing:** Streamlit's `AppTest` runs the app without a browser and lets a test
+  click widgets and read what is displayed.

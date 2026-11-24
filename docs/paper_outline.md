@@ -179,6 +179,15 @@ in the summary's script). No language model is used.
 Repaired summaries are re-verified with the full pipeline and auto-accepted only if every claim is
 SUPPORTED; all others are routed to human review together with the evidence and edit log.
 
+### 4.7 Interactive demonstrator
+The full pipeline is exposed in a browser-based demonstrator (Streamlit) that accepts either a
+benchmark example or a user-supplied source–summary pair. For every claim it displays the
+verdict, the retrieved evidence sentences with their retrieval scores, the outcome of each rule
+check and the NLI class probabilities, followed by the applied edits as a word-level diff and
+the re-verification result. The demonstrator calls the same code and configuration as the
+experiments and reproduces the stored repair outputs and final routing decisions for all 512
+benchmark summaries exactly; it runs on a CPU without any external API.
+
 ## 5. Experimental Setup
 [TODO – models and versions (config.yaml), hardware (CPU), dev-only tuning protocol, baselines
 and ablations, metrics (precision/recall/F1 per error type, balanced accuracy, content
