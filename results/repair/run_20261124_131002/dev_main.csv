@@ -1,0 +1,5 @@
+,n,error_rate_%,fixed_complete_%(ERROR rows),faithful_%(ERROR rows),empty_%,correct_untouched_%(CORRECT rows),new_errors_%(CORRECT rows),keyfact_retention_%,sim_to_reference_%,chars_changed_%,auto_accepted_%,faithful_among_accepted_%
+no_repair,160.0,75.0,0.0,0.0,0.0,100.0,0.0,91.5,96.79456536248021,0.0,13.750000000000002,100.0
+delete_flagged,160.0,0.0,9.166666666666666,90.83333333333333,8.75,55.00000000000001,0.0,56.0,70.38378775203209,31.16024907983684,91.25,100.0
+selective,160.0,0.0,95.83333333333334,100.0,0.0,100.0,0.0,98.125,99.13180688647162,3.945692095620447,55.625,100.0
+selective_oracle,160.0,0.0,95.83333333333334,100.0,0.0,100.0,0.0,98.125,99.13180688647162,3.945692095620447,55.625,100.0

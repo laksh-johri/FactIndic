@@ -1,0 +1,9 @@
+system,label,complete,empty,erroneous,lossy
+delete_flagged,CORRECT,54,5,0,29
+delete_flagged,ERROR,32,19,0,213
+no_repair,CORRECT,88,0,0,0
+no_repair,ERROR,0,0,264,0
+selective,CORRECT,88,0,0,0
+selective,ERROR,259,0,0,5
+selective_oracle,CORRECT,88,0,0,0
+selective_oracle,ERROR,259,0,0,5

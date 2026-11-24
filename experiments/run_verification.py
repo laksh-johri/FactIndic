@@ -41,8 +41,12 @@ ERROR_ORDER = ["number_swap", "date_swap", "entity_swap", "negation", "unsupport
 
 
 # ---------------------------------------------------------------------------
-def prepare(cfg: dict) -> tuple[pd.DataFrame, set[str]]:
-    articles, errors = load_articles(), load_errors()
+def prepare(cfg: dict, errors: pd.DataFrame | None = None,
+            premises: tuple[str, ...] = ("concat", "top1")) -> tuple[pd.DataFrame, set[str]]:
+    """Decompose, retrieve, run rules and NLI for every row of `errors` (default: the data file).
+    Pass a modified DataFrame (e.g. repaired summaries) to re-verify them (pipeline step 6)."""
+    articles = load_articles()
+    errors = load_errors() if errors is None else errors
     dev_art = get_split(articles, "dev")
     safe = build_safe_vocab(dev_art["summary"].tolist(), dev_art["key_facts"].tolist())
     art = articles.set_index("article_id")
@@ -70,13 +74,15 @@ def prepare(cfg: dict) -> tuple[pd.DataFrame, set[str]]:
                 is_error_claim=is_err, expected=expected,
                 evidence=[e.to_dict() for e in ev], premise_concat=concat, premise_top1=ev_texts[0],
                 rules={x.name: {"status": x.status, "reason": x.reason} for x in rules}))
-            pairs += [(concat, c.text), (ev_texts[0], c.text)]
+            pairs += [({"concat": concat, "top1": ev_texts[0]}[p], c.text) for p in premises]
 
     nli = NLIModel(verbose=True)
     print(f"{len(recs)} claims from {errors.shape[0]} summaries; running NLI on {len(set(pairs))} unique pairs ...")
     probs = nli.predict(pairs)
+    n = len(premises)
     for i, rec in enumerate(recs):
-        rec["nli_concat"], rec["nli_top1"] = probs[2 * i], probs[2 * i + 1]
+        for j, p in enumerate(premises):
+            rec[f"nli_{p}"] = probs[n * i + j]
     return pd.DataFrame(recs), safe
 
 

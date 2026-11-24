@@ -1,0 +1,7 @@
+error_type,delete,flip_negation,replace_date,replace_entity,replace_number,review
+none,0,0,0,0,0,49
+number_swap,0,0,0,0,59,16
+date_swap,0,0,55,0,0,18
+entity_swap,5,0,0,44,0,21
+negation,0,49,0,0,0,27
+unsupported_addition,52,0,0,0,0,27

@@ -855,3 +855,164 @@ exactly as specified in CLAUDE.md (SUPPORTED requires NLI entailment AND all rul
 Options (b) "NLI-only rejections → REVIEW" and (c) "concat premise for multi-sentence claims"
 were considered and not adopted; they can be mentioned in the paper as future work. All later
 steps use the Step 4 configuration (`config.yaml: verification`).
+
+---
+
+## Step 5 – Selective repair and re-check (pipeline steps 5 + 6) (2026-11-24)
+
+> No API key: repair is rule-based and copies values from the retrieved evidence. Decision rule
+> unchanged (option a). Results: `results/repair/run_20261124_131002/`.
+
+### 1. What I built
+A repair module that fixes **only the claims the verifier flagged**, and only inside their exact
+character span in the summary. What it does depends on *which* rule check failed: a wrong number,
+date or name is replaced with the matching value copied from the evidence; a wrong negation is
+flipped by inserting or removing नहीं / *nahi*; content that has no counterpart in the source is
+deleted. If no rule failed (the claim was flagged only by NLI) or no safe replacement exists,
+the text is left unchanged and marked for human review. Then every output summary is verified
+again with the full Step 4 pipeline (pipeline step 6): if all claims are SUPPORTED it is
+auto-accepted, otherwise it goes to a human. Outputs are judged against the gold reference
+summary, and compared with "no repair", a crude "delete every flagged claim" baseline, and our
+repair given *perfect* detection (oracle).
+
+### 2. Files created / changed
+| File | Purpose | Key functions |
+|---|---|---|
+| `src/repair.py` | Evidence-based selective repair | `repair_summary()`, `repair_entity()`, `repair_date()`, `repair_numbers()`, `repair_negation()`, `delete_claim()`, `apply_edits()`, `pick()`, `render_date()` |
+| `experiments/run_repair.py` | 4 systems × 512 summaries, gold outcome, content metrics, re-check | `run_systems()`, `gold_outcome()`, `add_content_metrics()`, `recheck()`, `summarise()` |
+| `experiments/run_verification.py` | `prepare()` now accepts any set of summaries (needed for re-checking) | `prepare(cfg, errors=None, premises=...)` |
+| `tests/test_repair.py` | 13 tests: each repair type in both scripts, decoy number not chosen, May/मई rendering, deletion, NLI-only flags untouched, adjacent deletions merged, gold-outcome definition | |
+
+### 3. How it works
+1. For each flagged claim, look at the failed rules.
+2. **Find a replacement in the evidence.** Candidates (numbers, dates, or "entity-like" word runs
+   that are not ordinary summary/source words) are scored by **context**: does the word before
+   and/or after the candidate in the evidence match the word before/after the wrong value in the
+   claim? Ties are broken by evidence rank. No context match, or a tie → no guess.
+3. **Write the value in the summary's style:** ASCII digits even when the source uses २५३;
+   month names in the claim's script (जनवरी vs January).
+4. **Delete** a claim when its unsupported content is not a single replaceable name (typical for
+   added sentences) or when no evidence entity fits.
+5. **Re-check:** decompose, retrieve, rules + NLI again on the edited summary.
+
+**Worked example (`hi013-E3`, number swap, source in Devanagari digits).**
+
+| | Text |
+|---|---|
+| Input | 27 जनवरी 2024 को रांची में हुए मुकाबले में सनराइज़ क्लब की कप्तानी नेहा गुप्ता ने की। टीम ने **152** रन बनाए। बारिश के कारण मैच को बीच में रोका नहीं गया। |
+| Edits | claim #2: `replace_number 152 → 253` ("number copied from evidence": टीम ने पहले बल्लेबाज़ी करते हुए **२५३** रन बनाए। – not the decoy १२५, because "रन" matches and its evidence rank is higher); claim #1: `review` (flagged by NLI only – the Step 4 false alarm) |
+| Output | 27 जनवरी 2024 को … नेहा गुप्ता ने की। टीम ने **253** रन बनाए। बारिश … रोका नहीं गया। |
+| Gold outcome | **complete** (identical to the reference) |
+| Re-check | **human review** – claim #1 is still rejected by NLI |
+| Delete-flagged baseline | "बारिश के कारण मैच को बीच में रोका नहीं गया।" – faithful, but 2 of 3 facts lost |
+
+**A conservative failure (`hi028-E1`, location swap जयपुर ← गोरखपुर).** In the summary the city
+sits between "को … में", in the source it starts the sentence ("गोरखपुर के स्वस्थ भारत ट्रस्ट
+ने …"), so no context word matches. The repair refuses to guess and deletes the first clause:
+the output is faithful but loses facts, and starts with a dangling "जिसके प्रभारी डॉ. पूजा
+रस्तोगी थे।".
+
+### 4. Design decisions & why
+| Decision | Alternatives | Why |
+|---|---|---|
+| Repair driven by the failed rule | Rewrite the whole claim; LLM rewrite | No API key; the failed rule tells us *what* is wrong, so the edit can be minimal and explained. |
+| Values copied only from evidence, chosen by context + rank | Take "the" number in the top sentence; use the gold answer | The evidence often contains a decoy number (Step 3); using gold would be cheating. |
+| Ambiguity → no edit (review) / delete | Always guess | A wrong guess *creates* a new error; for a fact checker, saying "I don't know" is safer. |
+| NLI-only flags are never edited | Delete them | NLI flags have no pinpointed cause and 14.7 % of correct claims are NLI false alarms (Step 4); editing them would damage correct summaries. |
+| Strict gold outcome: "lossy" = whole claims removed | "Output can be made by deleting characters" | Found during this step: deleting characters can delete नहीं and reverse the meaning; the first definition wrongly counted 30 un-repaired error summaries as faithful. |
+| Separate "empty" outcome | Count as lossy or erroneous | An empty summary has no false facts but is useless; it is reported on its own. |
+| Oracle-detection variant | Only the real system | Separates "is detection the bottleneck?" from "is repair the bottleneck?". |
+
+**Bugs found and fixed in this step (by tests and sanity checks):** (1) "May" has only three
+letters and crashed the English month renderer; (2) when two neighbouring claims were deleted,
+their spans overlapped by one space and one deletion was silently dropped – in the baseline this
+left the erroneous claim in place; overlapping deletions are now merged.
+
+### 5. How to verify it yourself
+```bash
+venv\Scripts\python -m pytest -q                     # 64 passed
+venv\Scripts\python -m experiments.run_repair        # fast (NLI cached); prints TEST/DEV tables
+#  TEST main ... selective  352  0.0  98.1  100.0  0.0  100.0  0.0  99.2  99.7  3.4  61.4  100.0
+```
+
+### 6. Results (TEST: 352 summaries; DEV in `dev_main.csv`, same pattern)
+| System | Erroneous summaries % | Errors fixed exactly % (ERROR rows) | Faithful % (ERROR rows) | Empty % | Correct summaries untouched % | Key-fact retention % | Similarity to reference % | Chars changed % | Auto-accepted after re-check % | Faithful among auto-accepted % |
+|---|---|---|---|---|---|---|---|---|---|---|
+| No repair | **75.0** | 0.0 | 0.0 | 0.0 | 100 | 90.7 | 96.9 | 0.0 | 15.3 | 100 |
+| Delete flagged claims | 0.0 | 12.1 | 92.8 | 6.8 | 61.4 | 61.8 | 74.4 | 27.3 | 92.9 | 100 |
+| **Selective repair (ours)** | **0.0** | **98.1** | **100** | 0.0 | **100** | **99.2** | **99.7** | **3.4** | 61.4 | 100 |
+| Selective + oracle detection | 0.0 | 98.1 | 100 | 0.0 | 100 | 99.2 | 99.7 | 3.4 | 61.4 | 100 |
+
+**Per error type (selective, test):** exact fix 100 % for number, date, negation and addition
+errors; **89.8 % for entity swaps** – the other 10.2 % (5 summaries, location/organisation swaps
+in a different syntactic position) were deleted instead (faithful, lossy). Actions taken:
+59 number replacements, 55 date replacements, 44 entity replacements, 49 negation flips,
+57 deletions (52 additions + 5 entity fallbacks), and 158 "review" marks (all NLI-only flags,
+which never change text). By language: exact fix 98.5 % Hindi, 97.7 % Hinglish; auto-accepted
+52.3 % Hindi vs 70.5 % Hinglish.
+
+**Interpretation – answer to the research question on this benchmark.**
+1. **Selective correction removes all injected errors (75 % → 0 % erroneous) while preserving
+   content:** 99.2 % of key facts kept, only 3.4 % of characters changed, and every correct
+   summary left exactly as it was.
+2. **Being selective matters.** Deleting every flagged claim also removes the errors, but keeps
+   only 61.8 % of key facts, changes 27 % of the text, damages 39 % of the correct summaries and
+   produces 24 empty summaries.
+3. **Detection is not the bottleneck for repair here:** the oracle-detection variant gives
+   identical outputs, because NLI false alarms are never edited and the rules flag exactly the
+   error claims.
+4. **The remaining cost is human review:** after re-check 38.6 % of summaries still go to a
+   human, all because of the NLI false alarms from Step 4 (option a keeps NLI as a hard
+   requirement). Every auto-accepted summary is faithful (100 %).
+5. **Repair is conservative by design:** when unsure it deletes or defers; it never introduced a
+   new error in any output (0 erroneous outputs).
+
+### 7. For the research paper → **Methodology** (4.5 repair, 4.6 re-check), **Results** (6.2), **Limitations**
+1. Flagged claims are repaired in place, within their character span, by operations determined by
+   the failed check: numbers, dates and entities are replaced with the context-matching value from
+   the retrieved evidence, negation is inserted or removed to match the evidence polarity, and
+   content without a counterpart in the evidence is deleted; claims flagged only by NLI are not
+   edited but routed to human review.
+2. Repaired summaries are re-verified with the same pipeline and auto-accepted only if every claim
+   is supported.
+3. On the test set, selective repair reduces the proportion of erroneous summaries from 75.0 % to
+   0.0 %, restores 98.1 % of corrupted summaries exactly to their reference, retains 99.2 % of key
+   facts and changes 3.4 % of characters, while leaving all faithful summaries unchanged.
+4. In contrast, deleting all flagged claims also removes the errors but retains only 61.8 % of key
+   facts and leaves 6.8 % of summaries empty.
+5. Repair with oracle detection yields identical results, indicating that on this benchmark the
+   remaining cost lies in the 38.6 % of summaries that are routed to human review because of NLI
+   false alarms rather than in detection or correction errors.
+
+### 8. Limitations / things to watch
+* **Very favourable setting.** Each summary has exactly one error, of a type the rules detect,
+  and the correct value is always in the retrieved evidence (Step 3). Real errors (paraphrased,
+  multiple, or with no counterpart in the source) would be much harder; these numbers are an
+  upper bound.
+* **Context heuristic is template-friendly.** It relies on the neighbouring words of the wrong
+  value matching the source. It failed for 5 location/organisation swaps where the source phrases
+  the sentence differently; I found this on test data and did **not** tune for it.
+* **Deleting a leading clause can leave ungrammatical text** (a dangling "जिसके …" / "jiske …").
+  Faithful, but not fluent; an LLM rewrite step would fix this.
+* **Unsupported additions are deleted, not marked** – right for a summary, but the user does not
+  see what was removed unless the edit log is shown (the demo should show it).
+* **Exact-match evaluation** works only because the dataset gives a reference summary that differs
+  from the candidate in one span; real repairs would need human or NLI-based evaluation.
+* **38.6 % human-review load** is high and comes from the decision rule + NLI false alarms, not
+  from repair.
+
+### 9. Concepts to understand
+* **Selective (targeted) correction:** change only what is proven wrong, keep everything else –
+  the opposite of regenerating the whole summary.
+* **Edit / character span:** a change described as "(for example) replace characters 63–66 with '253'". Because
+  every claim knows its span (Step 2), edits never touch other claims.
+* **Context matching:** choosing between candidate values by looking at their neighbouring words –
+  a tiny version of how alignment works in machine translation.
+* **Oracle experiment:** replace one component with a perfect version to see how much the rest of
+  the system loses because of that component.
+* **Precision over recall in repair:** for a fact-checker, a wrong "fix" is worse than no fix, so the
+  system abstains (review) or deletes when uncertain.
+* **Content preservation metrics:** key-fact retention (are the important facts still there?),
+  similarity to reference, and percentage of characters changed (how invasive was the repair?).
+* **Human-in-the-loop:** the system handles what it is sure about and sends the rest to a person;
+  "auto-accepted %" vs "human review %" measures the workload.

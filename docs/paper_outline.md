@@ -167,10 +167,17 @@ selected on the development set by summary-level balanced accuracy (selected: be
 τ = 0.5).
 
 ### 4.5 Selective repair
-[TODO]
+Flagged claims are repaired in place, within their character span, by operations determined by
+the failed check: numbers, dates and entities are replaced with the value from the retrieved
+evidence whose neighbouring words match the claim (ties broken by evidence rank, unresolved ties
+left unedited), negation is inserted or removed to match the polarity of the best evidence
+sentence, and content without a counterpart in the evidence is deleted. Claims flagged only by
+NLI are not edited. Values are rendered in the summary's conventions (ASCII digits, month names
+in the summary's script). No language model is used.
 
 ### 4.6 Re-verification and human-review routing
-[TODO]
+Repaired summaries are re-verified with the full pipeline and auto-accepted only if every claim is
+SUPPORTED; all others are routed to human review together with the evidence and edit log.
 
 ## 5. Experimental Setup
 [TODO – models and versions (config.yaml), hardware (CPU), dev-only tuning protocol, baselines
@@ -192,7 +199,21 @@ the NLI component, as the rule checks never fire on faithful claims. Specificity
 Hinglish (70.5 %) than for Hindi (52.3 %). Because the rule checks target exactly the error types
 used for corruption, their perfect scores are an upper bound for this synthetic benchmark.
 
-[TODO – repair results.]
+### 6.2 Selective repair (test, 352 summaries)
+| System | Erroneous % | Exact fix % (corrupted) | Key-fact retention % | Chars changed % | Faithful untouched % | Empty % | Auto-accepted % |
+|---|---|---|---|---|---|---|---|
+| No repair | 75.0 | 0.0 | 90.7 | 0.0 | 100 | 0.0 | 15.3 |
+| Delete flagged claims | 0.0 | 12.1 | 61.8 | 27.3 | 61.4 | 6.8 | 92.9 |
+| Selective repair | 0.0 | 98.1 | 99.2 | 3.4 | 100 | 0.0 | 61.4 |
+| Selective repair, oracle detection | 0.0 | 98.1 | 99.2 | 3.4 | 100 | 0.0 | 61.4 |
+
+Selective repair reduces the proportion of erroneous summaries from 75.0 % to 0.0 %, restores
+98.1 % of corrupted summaries exactly to their reference (100 % for number, date, negation and
+addition errors; 89.8 % for entity swaps, where the remainder is conservatively deleted), retains
+99.2 % of key facts and changes 3.4 % of characters, while leaving all faithful summaries
+unchanged. Deleting all flagged claims also removes the errors but retains only 61.8 % of key
+facts. Oracle detection yields identical results; the remaining cost is the 38.6 % of summaries
+routed to human review because of NLI false alarms. All auto-accepted summaries are faithful.
 
 ## 7. Error Analysis
 NLI false alarms (158 of 1,072 faithful test claims, from only 43 distinct claim strings) are

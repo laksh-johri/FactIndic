@@ -1,0 +1,9 @@
+,complete,complete,complete,faithful,faithful,faithful
+system,no_repair,selective,selective_oracle,no_repair,selective,selective_oracle
+error_type,,,,,,
+none,100.0,100.0,100.0,100.0,100.0,100.0
+number_swap,0.0,100.0,100.0,0.0,100.0,100.0
+date_swap,0.0,100.0,100.0,0.0,100.0,100.0
+entity_swap,0.0,89.8,89.8,0.0,100.0,100.0
+negation,0.0,100.0,100.0,0.0,100.0,100.0
+unsupported_addition,0.0,100.0,100.0,0.0,100.0,100.0
