@@ -1,0 +1,6 @@
+error_type,rule=fail/nli=ent,rule=fail/nli=non-ent
+number_swap,0,59
+date_swap,0,55
+entity_swap,0,49
+negation,1,48
+unsupported_addition,0,52

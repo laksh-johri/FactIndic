@@ -631,3 +631,221 @@ lexical+norm reaches – versus 1 of 69 noisy claims (cap 98.6 %, also reached).
 separately for each language using a pre-specified order of criteria; lexical retrieval with
 script normalisation was preferred in both Hindi and Hinglish (MRR 1.000 vs 0.996 for LaBSE),
 and LaBSE and a min–max-normalised hybrid are reported as baselines."
+
+---
+
+## Step 4 – Claim verification: NLI + rule checks + decision rule (2026-11-24)
+
+> Results folder: `results/verification/run_20261124_125224/`. No API key used. NLI model
+> `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` on CPU (1,592 unique
+> premise–claim pairs; slow on CPU the first time, then cached in `cache/nli_*.pkl`, so re-runs take seconds).
+
+### 1. What I built
+The verifier takes every claim (Step 2) with its top-3 evidence sentences (Step 3) and decides
+SUPPORTED / CONTRADICTED / UNSUPPORTED / REVIEW. It combines two judges: a **multilingual NLI
+model**, which reads the evidence and the claim and says whether the evidence *entails*,
+*contradicts* or is *neutral* about the claim, and four **exact rule checks** (numbers, dates,
+negation, entities) that compare specific values. The decision rule from CLAUDE.md combines
+them: a claim is SUPPORTED only if NLI says entailment *and* all rules pass. A summary is
+flagged as erroneous if any of its claims is not SUPPORTED. Two settings (which evidence to
+give NLI, and the confidence threshold τ) were tuned on dev; everything is reported on test,
+together with ablations (NLI only, rules only, full system minus one rule).
+
+### 2. Files created / changed
+| File | Purpose | Key functions |
+|---|---|---|
+| `src/nli.py` | NLI model wrapper, disk cache, saves every 128 pairs | `NLIModel.predict()`, `nli_label()` |
+| `src/rules.py` | Exact checks with human-readable reasons | `check_numbers()`, `check_dates()`, `check_negation()`, `check_entities()`, `run_rules()`, `build_safe_vocab()`, `numbers()`, `dates()` |
+| `src/verify.py` | The decision rule + ablation modes | `decide()`, `summary_flagged()`, `Verdict` |
+| `experiments/run_verification.py` | Full pipeline on 512 summaries, dev grid, test metrics, ablations | `prepare()`, `apply()`, `summary_level()`, `metrics()`, `tune()` |
+| `tests/test_verify.py` | 9 tests (number/date extraction incl. Devanagari digits and nukta month names, each rule, decision rule incl. ablation modes, NLI cache with fake model) | |
+| `config.yaml` | `verification.nli_threshold: 0.5`, `nli_premise: top1`, `rules: [...]` | |
+
+### 3. How it works
+1. **Rule checks** (all on the top-3 evidence; text normalised first):
+   * *numbers*: every number in the claim must appear in the evidence (२५३ = 253);
+   * *dates*: every "day month year" in the claim must appear in the evidence (Hindi and English
+     month names, spelling variants such as फरवरी/फ़रवरी);
+   * *negation*: the claim and the best evidence sentence must both contain, or both lack, a
+     negation word (नहीं, न, मत, nahi, nahin, not, …);
+   * *entities*: no "novel" content word may appear – a word that is in neither the evidence
+     nor a **safe vocabulary**. The safe vocabulary is learned from the 40 dev reference
+     summaries (all their words except their key-fact values), i.e. the summariser's normal
+     paraphrase words such as *लगाया* or *organise*. A swapped name like *नेहा गुप्ता* is in
+     neither, so it fails. (This replaces a named-entity recogniser, which we do not have for
+     romanised Hinglish.)
+2. **NLI**: premise = evidence, hypothesis = claim → probabilities for entailment / neutral /
+   contradiction. Two premise options: `top1` (best evidence sentence) or `concat` (the 3
+   evidence sentences in source order).
+3. **Decision rule** with threshold τ: any rule fails → CONTRADICTED; else P(entail) ≥ τ →
+   SUPPORTED; P(contradict) ≥ τ → CONTRADICTED; P(neutral) ≥ τ → UNSUPPORTED; else REVIEW.
+4. **Tuning on dev** (rule fixed before running): grid premise ∈ {concat, top1} × τ ∈ {0.50,
+   0.55, …, 0.95}; pick highest summary-level *balanced accuracy*, then lowest REVIEW rate,
+   then concat, then lowest τ. Selected: **top1, τ = 0.50** (both for the full system and for
+   NLI-only).
+
+**Worked example (`hi013`, sports, Hindi, test; source written in Devanagari digits).**
+
+| Row | Claim | Best evidence | NLI e/n/c | Rules failed | Verdict |
+|---|---|---|---|---|---|
+| hi013-E3 | टीम ने **152** रन बनाए। | टीम ने पहले बल्लेबाज़ी करते हुए **२५३** रन बनाए। | 0.19 / 0.03 / 0.78 | numbers: "[152] not found in evidence ['125','253']" | **CONTRADICTED** ✅ |
+| hi013-C | टीम ने 253 रन बनाए। | (same) | 0.95 / 0.04 / 0.02 | – | **SUPPORTED** ✅ |
+| hi013-C & E3 | 27 जनवरी 2024 को रांची में हुए मुकाबले में सनराइज़ क्लब की कप्तानी नेहा गुप्ता ने की। | २७ जनवरी २०२४ को रांची में खेले गए मुकाबले में सनराइज़ क्लब ने शानदार प्रदर्शन किया। | 0.14 / 0.31 / 0.55 | – | **CONTRADICTED** ❌ (false alarm) |
+
+The number error is caught by *both* judges. The third row is a false alarm: the captain's name
+is in a *different* source sentence (S1), and with the `top1` premise the NLI model never sees
+it, so it reads "Neha Gupta captained" as contradicting a sentence that does not mention her.
+Because of this one claim, the correct summary `hi013-C` is wrongly flagged.
+
+### 4. Design decisions & why
+| Decision | Alternatives | Why |
+|---|---|---|
+| Rules override NLI when they fail | Vote; NLI overrides rules | Required by the CLAUDE.md decision rule, and rules are exact: if the number is not in the evidence, no fluent sentence can make the claim true. |
+| Single τ for all three NLI labels, τ ≥ 0.5 | Separate thresholds; argmax | With τ ≥ 0.5 at most one label can pass, so the rule is unambiguous and has one parameter to tune on 160 dev summaries. Below threshold → REVIEW implements "low confidence → human". |
+| Balanced accuracy as the dev objective | F1 on ERROR; accuracy | 75 % of summaries contain an error; F1/accuracy would reward flagging *everything*. Balanced accuracy weighs catching errors and passing correct summaries equally. |
+| Entity check = novel words outside a dev-learned safe vocabulary | NER model (IndicNER); capitalisation | No NER handles romanised Hinglish; capitalisation does not exist in Devanagari. Learning the safe vocabulary from dev *reference* summaries (known faithful) only uses dev labels. |
+| Negation compared with the top-1 evidence sentence only | Any of the top-3 | Another evidence sentence may legitimately contain a negation about something else. |
+| Count REVIEW as "flagged" | Count REVIEW as passed | A REVIEW claim goes to a human, so the summary is not auto-approved. |
+| Fair ablations: NLI-only tuned on dev in the same way | Reuse full-system settings | Otherwise the NLI-only baseline would be handicapped. |
+| NLI cache saved every 128 pairs | Save at the end | The first run was killed after ~10 min and lost everything; chunked saving makes runs resumable. |
+
+### 5. How to verify it yourself
+```bash
+venv\Scripts\python -m pytest -q                         # 51 passed
+venv\Scripts\python -m experiments.run_verification      # slow the first time (NLI on CPU), seconds afterwards (cached)
+#  1932 claims from 512 summaries; running NLI on 1592 unique pairs ...
+#  DEV-selected full system: {'premise': 'top1', 'tau': 0.5} | NLI-only: {'premise': 'top1', 'tau': 0.5}
+#  TEST main ... full (NLI + rules) 352 88.6 100.0 94.0 61.4 80.7 ...
+```
+
+### 6. Results (TEST: 352 summaries = 88 correct + 264 with one error; 1,336 claims)
+**Summary-level detection** (positive class = ERROR; REVIEW counts as flagged).
+| System | Precision | Recall | F1 | Specificity | Balanced acc. | REVIEW rate (claims) | Error claim flagged | Exact localisation |
+|---|---|---|---|---|---|---|---|---|
+| Rules only | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 0.0 | 100.0 | 100.0 |
+| NLI only (top1, τ=0.5) | 88.6 | 99.6 | 93.8 | 61.4 | 80.5 | 5.3 | 100.0 | 67.7 |
+| **Full: NLI + rules** | 88.6 | 100.0 | 94.0 | 61.4 | 80.7 | 4.7 | 100.0 | 67.8 |
+| Full − numbers / − dates / − entities | identical to full (other judges catch the same errors) | | | | | | | |
+| Full − negation | 88.6 | 99.6 | 93.8 | 61.4 | 80.5 | 4.7 | 100.0 | 67.7 |
+
+**Detection rate by error type** (none = false-alarm rate on correct summaries).
+| System | none | number | date | entity | negation | addition |
+|---|---|---|---|---|---|---|
+| Rules only | 0.0 | 100 | 100 | 100 | 100 | 100 |
+| NLI only | 38.6 | 100 | 100 | 100 | 98.0 | 100 |
+| Full | 38.6 | 100 | 100 | 100 | 100 | 100 |
+
+**By language (full).** Hindi: specificity 52.3, balanced acc. 76.1. Hinglish: specificity 70.5,
+balanced acc. 85.2. Recall is 100 % in both.
+
+**Claim-level confusion (full; rows = expected, columns = predicted).**
+| expected \ predicted | CONTRADICTED | REVIEW | SUPPORTED | UNSUPPORTED |
+|---|---|---|---|---|
+| CONTRADICTED (212) | **212** | 0 | 0 | 0 |
+| SUPPORTED (1,072) | 22 | 63 | **914** | 73 |
+| UNSUPPORTED (52) | 52 | 0 | **0** | 0 |
+
+**Which judge catches the error claim?** Rules fail on all 264 error claims; NLI also rejects
+263 of them (the exception is one negation claim). Rule failure rates on *correct* claims: 0.0 %
+for all four rules.
+
+**Interpretation – the main finding of this step.**
+1. **Every injected error is detected** (recall 100 %), and the error claim is always among the
+   flagged claims.
+2. **All false alarms come from NLI.** The rules never fire on correct claims, but NLI rejects
+   14.7 % of correct claims (158 / 1,072), which makes 38.6 % of correct summaries flagged.
+   Because the CLAUDE.md rule requires NLI entailment for SUPPORTED, adding NLI to the rules
+   *lowers* balanced accuracy from 100 to 80.7 on this benchmark.
+3. **The false alarms are concentrated, not random.** By domain: health, environment and
+   technology 0 %; infrastructure 4.6 %; education 8.7 %; business 31.1 %; sports 53.6 %;
+   politics 55.8 %. They come from only **43 distinct claim strings**. Two causes are visible:
+   (a) *multi-sentence claims* with the `top1` premise (e.g. the sports captain is in a
+   different sentence, so NLI says contradiction); (b) a *template-specific NLI failure*:
+   "सभा में लगभग N लोग शामिल हुए" against its almost identical source sentence gets
+   neutral ≈ 0.93. Two hypotheses I tested and **rejected**: reported-speech evidence
+   ("आयोजकों के अनुसार…": 16.1 % vs 14.2 % false alarms) and Devanagari digits in the evidence
+   (27.6 % vs 31.5 % on Hindi number claims) – neither explains the errors.
+4. **Unsupported additions get the wrong *type* of verdict.** All 52 are flagged, but as
+   CONTRADICTED (a rule – usually entities – fails, and the rule says "rule fails →
+   CONTRADICTED"), never as the expected UNSUPPORTED.
+5. **The rules' 100 % is an upper bound by construction.** The errors were injected by swapping
+   exactly the things the rules check, and the safe vocabulary is learned from same-template
+   dev summaries. Do not present it as general rule performance.
+
+### 7. For the research paper → **Methodology** (verification), **Experimental Setup** (tuning), **Results**, **Error Analysis**
+1. Each claim is verified against its retrieved evidence by a multilingual NLI model
+   (mDeBERTa-v3-base fine-tuned on XNLI and multilingual NLI data) and by four deterministic
+   checks for numbers, dates, negation and novel entities, the latter using a vocabulary of
+   non-entity summary words learned from development-set reference summaries.
+2. A claim is labelled SUPPORTED only if the NLI entailment probability exceeds a threshold τ and
+   all checks pass; any failed check yields CONTRADICTED, and claims for which no NLI label
+   exceeds τ are routed to human review.
+3. The premise construction and τ were selected on the development set by maximising
+   summary-level balanced accuracy, yielding the single best evidence sentence as premise and
+   τ = 0.5.
+4. On the test set the full system detects all 264 corrupted summaries (recall 100 %) and
+   always flags the corrupted claim, but it also flags 38.6 % of faithful summaries (precision
+   88.6 %, balanced accuracy 80.7 %); all false alarms originate from the NLI component, as the
+   rule checks never fire on faithful claims.
+5. False alarms are concentrated in three of eight domains (31–56 % of faithful claims in
+   politics, sports and business versus 0 % in health, environment and technology), arising
+   from claims whose support spans two source sentences and from template-specific NLI
+   failures on near-verbatim paraphrases.
+6. Because the rule checks target exactly the error types used for corruption, their perfect
+   scores should be read as an upper bound for this synthetic benchmark rather than as an
+   estimate of real-world performance.
+
+### 8. Limitations / things to watch
+* **The benchmark is too easy for the rules** (by construction). Real hallucinations
+  (paraphrased wrong facts, wrong relations between correct entities, partial truths) would
+  slip past them; that is where NLI should help, and this dataset cannot show it.
+* **The decision rule, not the components, limits the score here.** Requiring NLI entailment for
+  SUPPORTED turns every NLI miss into a false alarm. This is a design question for you (see
+  "Open question" below), not something I changed.
+* **τ = 0.5 is at the edge of the allowed range**, so the optimum may be lower than the rule
+  permits.
+* **top1 vs concat was decided by one dev summary** (balanced acc. 77.5 vs 76.2); the two are
+  practically equivalent. top1 hurts multi-sentence claims, concat dilutes others.
+* **Small, correlated test set.** 88 correct summaries; false alarms come from 43 distinct
+  claim strings in 3 templates, so the effective sample size is much smaller than 1,336 claims.
+  A different template set could give very different specificity.
+* **Entity check is a heuristic**, not NER: on real summaries any new paraphrase word would be
+  "novel" and cause false alarms; the safe vocabulary only works because test summaries reuse
+  dev templates.
+* **Additions are labelled CONTRADICTED instead of UNSUPPORTED**; for *detection* this does not
+  matter, but a repair step that treats contradictions and additions differently would need the
+  type to be right.
+* NLI input is the raw (un-normalised) evidence text; we did not test normalising the premise
+  (doing it now would use knowledge gained from test – it must be tested on dev first).
+
+**Open question for the author (affects Step 5+).** Options for the decision rule:
+(a) keep it as specified (current); (b) let NLI *non-entailment without a rule failure* become
+REVIEW instead of CONTRADICTED/UNSUPPORTED, so humans check them; (c) use `concat` premise for
+claims whose key facts span several sentences. Any change must be re-tuned on dev only.
+
+### 9. Concepts to understand
+* **NLI (Natural Language Inference):** a model reads a *premise* (evidence) and a *hypothesis*
+  (claim) and outputs three probabilities: *entailment* (if the premise is true, the claim must
+  be true), *contradiction* (the claim must be false) and *neutral* (can't tell). Ours is
+  mDeBERTa-v3, a multilingual transformer trained on millions of NLI examples in ~100 languages.
+* **Rule-based vs learned checks:** rules are exact and explainable but only catch what they were
+  written for; learned models generalise to new phrasings but make unpredictable mistakes. Hybrid
+  systems try to get the best of both.
+* **Threshold (τ):** the minimum probability we accept before trusting a label. Higher τ = more
+  cautious = more REVIEW.
+* **Confusion matrix:** a table of *expected* vs *predicted* labels; the diagonal is correct.
+* **Precision / recall / F1:** precision = of the summaries we flagged, how many really had an
+  error; recall = of the summaries that had an error, how many we flagged; F1 = their harmonic
+  mean (high only if both are high).
+* **Specificity:** of the *correct* summaries, how many we left alone. A detector that flags
+  everything has recall 100 % but specificity 0 %.
+* **Balanced accuracy:** (recall + specificity) / 2 – fair when classes are imbalanced (here
+  75 % errors).
+* **Ablation:** remove one component and re-measure to learn what it contributes ("full −
+  negation").
+* **False alarm (false positive):** flagging a correct summary as wrong. Costly in practice:
+  users stop trusting a tool that cries wolf.
+* **Upper bound by construction:** a score that is perfect because the test was built in the
+  same way as the method, not because the method is generally that good.
+* **Correlated errors / effective sample size:** 158 wrong claims that are really 43 repeated
+  sentences carry much less evidence than 158 independent mistakes.

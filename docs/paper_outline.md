@@ -154,7 +154,17 @@ recall@3 in a pooled stress test, simplicity), which selected the lexical scorer
 | hybrid+norm α=0.5 | 95.3 | 65.1 | 66.0 |
 
 ### 4.4 Verification
-[TODO – multilingual NLI + rule checks (numbers, dates, negation, entities) and the decision rule.]
+Each claim is verified against its retrieved evidence by a multilingual NLI model (mDeBERTa-v3-base
+fine-tuned on XNLI and multilingual NLI data) and by four deterministic checks for numbers, dates,
+negation and novel entities; the entity check flags content words that occur neither in the
+evidence nor in a vocabulary of non-entity summary words learned from development-set reference
+summaries. A claim is labelled SUPPORTED only if the NLI entailment probability reaches a
+threshold τ and all checks pass; any failed check yields CONTRADICTED, NLI contradiction or
+neutral above τ yields CONTRADICTED or UNSUPPORTED, and claims for which no NLI label reaches τ
+are routed to human review (REVIEW). A summary is flagged if any of its claims is not SUPPORTED.
+The NLI premise (best evidence sentence vs. concatenated top-3) and τ ∈ {0.50,…,0.95} were
+selected on the development set by summary-level balanced accuracy (selected: best sentence,
+τ = 0.5).
 
 ### 4.5 Selective repair
 [TODO]
@@ -168,10 +178,31 @@ and ablations, metrics (precision/recall/F1 per error type, balanced accuracy, c
 preservation).]
 
 ## 6. Results
-[TODO – detection results on test; per-error-type and per-language breakdown; repair results.]
+
+### 6.1 Error detection (test, 352 summaries)
+| System | Precision | Recall | F1 | Specificity | Bal. acc. | REVIEW % | Exact loc. |
+|---|---|---|---|---|---|---|---|
+| Rules only | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 0.0 | 100.0 |
+| NLI only | 88.6 | 99.6 | 93.8 | 61.4 | 80.5 | 5.3 | 67.7 |
+| NLI + rules (full) | 88.6 | 100.0 | 94.0 | 61.4 | 80.7 | 4.7 | 67.8 |
+
+On the test set the full system detects all 264 corrupted summaries and always flags the
+corrupted claim, but it also flags 38.6 % of faithful summaries; all false alarms originate from
+the NLI component, as the rule checks never fire on faithful claims. Specificity is higher for
+Hinglish (70.5 %) than for Hindi (52.3 %). Because the rule checks target exactly the error types
+used for corruption, their perfect scores are an upper bound for this synthetic benchmark.
+
+[TODO – repair results.]
 
 ## 7. Error Analysis
-[TODO – qualitative failure cases: Devanagari digits, spelling noise, negation, additions.]
+NLI false alarms (158 of 1,072 faithful test claims, from only 43 distinct claim strings) are
+concentrated in three of eight domains: 31–56 % of faithful claims in politics, sports and
+business versus 0 % in health, environment and technology. Two causes are identifiable: claims
+whose support spans two source sentences (with a single-sentence premise the model predicts
+contradiction), and template-specific NLI failures on near-verbatim paraphrases (e.g. neutral
+≈ 0.93 for "सभा में लगभग N लोग शामिल हुए" against its source sentence). Reported-speech evidence
+and Devanagari numerals did not explain the errors. Unsupported additions are always detected but
+labelled CONTRADICTED rather than UNSUPPORTED, because a failed entity check takes precedence.
 
 ## 8. Limitations
 [TODO – synthetic template-based data; single injected error; lexical negation only; romanised

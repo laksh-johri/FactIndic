@@ -1,0 +1,5 @@
+,fail% on correct claims,fail% on error claims
+numbers,0.0,39.015151515151516
+dates,0.0,26.136363636363637
+negation,0.0,19.696969696969695
+entities,0.0,38.25757575757576

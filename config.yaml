@@ -31,7 +31,11 @@ retrieval:
   score_norm: minmax              # hybrid only: rescale both scorers to [0,1] per claim, then average
 
 verification:
-  nli_threshold: 0.5              # placeholder; tune on DEV only (Step 6)
+  # Selected on DEV in Step 4 (results/verification/run_20261124_125224), grid premise x tau,
+  # objective = summary-level balanced accuracy. 0.5 is the lowest value the decision rule allows.
+  nli_threshold: 0.5
+  nli_premise: top1               # top1 = best evidence sentence | concat = top-k sentences in source order
+  rules: [numbers, dates, negation, entities]
 
 paths:
   results: results
