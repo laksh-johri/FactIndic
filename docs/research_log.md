@@ -1170,3 +1170,65 @@ In the browser, try these:
   text and never executed as web code.
 * **Headless UI testing:** Streamlit's `AppTest` runs the app without a browser and lets a test
   click widgets and read what is displayed.
+
+---
+
+## Step 6b – Demo redesign (2026-11-24)
+
+> Visual change only: pipeline, settings and all numbers unchanged (78 tests pass, including the
+> 512/512 reproduction test).
+
+**What changed.** The Streamlit demo was restyled after three design references supplied by the
+author:
+- **Numbered section headers** ("01 Impact & metrics"): large, thin Poppins type.
+- **Segmented 0–100 meters** with orange-red bars that fade towards the value.
+- **White rounded cards** on a light-grey canvas.
+- **Pipeline trace:** a dotted canvas with step cards, friendly blob icons and pink-to-red elbow
+  connectors.
+- **Indigo gradient area chart** with a rounded value pill.
+
+**Files.**
+
+| File | Purpose |
+|---|---|
+| `.streamlit/config.toml` | Theme: Poppins font, colours, radii |
+| `assets/factindic.css` | Card, meter and flow styles. Only keyed containers (`.st-key-card*`, `.st-key-dots*`) and own `fi-*` classes are targeted. |
+| `src/render.py` | `section_html`, `meter_html`, `small_meter_html`, `kpi_html`, `blob_html`, `flow_html` |
+| `app.py` | New layout |
+
+**Layout.**
+- **Check a summary:**
+  1. Meters: claims supported before repair, after repair, and % of the text changed.
+  2. Pipeline trace for the chosen summary.
+  3. Claims card next to a "supported claims" card. That card's chart shows NLI entailment per
+     claim, with the weakest claim marked.
+  4. Evidence and checks; NLI probabilities shown as small meters.
+  5. Repair diff.
+  6. Re-check.
+- **Benchmark results:** read live from the latest `results/` runs.
+  - Impact meters: errors removed, exact fix, key facts kept.
+  - Detection meters: recall, precision, specificity.
+  - Exact-fix rate per error type (area chart) next to the human-review load.
+- **The default sample is now `hi013-E3`**, so a first-time viewer sees a real repair
+  (152 → 253) instead of a correct summary.
+
+**Design decisions.**
+- **Colours and font live in the theme config, not CSS.** CSS is used only where Streamlit has no
+  native element (cards, meters, flow).
+- **The pipeline-flow drawing is CSS only.** `st.html` sanitises inline SVG away, so the first
+  SVG version showed no icons or lines; I noticed this in a headless-browser screenshot.
+- **The new controls are native widgets:**
+  - `st.segmented_control` for the 2-option choices;
+  - Material icons on tabs and expanders;
+  - a progress column for the NLI probabilities in tables.
+
+**How to verify.**
+```bash
+venv\Scripts\python -m pytest -q
+venv\Scripts\streamlit run app.py
+```
+
+**Limitations.**
+- The flow layout uses absolute positions, so it is designed for a laptop or desktop width, not
+  phones.
+- The page is light-only; there is no dark-mode variant.

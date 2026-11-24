@@ -1,0 +1,27 @@
+# FactIndic demo theme: light, Poppins, soft grey canvas with white cards (custom CSS in assets/factindic.css).
+[theme]
+base = "light"
+font = "Poppins:https://fonts.googleapis.com/css2?family=Poppins:wght@200;300;400;500;600&display=swap"
+headingFont = "Poppins:https://fonts.googleapis.com/css2?family=Poppins:wght@200;300;400;500;600&display=swap"
+headingFontWeights = [300, 400, 400, 500, 500, 500]
+baseFontSize = 15
+primaryColor = "#E8401C"
+linkColor = "#4338CA"
+backgroundColor = "#F3F3F4"
+secondaryBackgroundColor = "#E8E8EB"
+textColor = "#111114"
+borderColor = "#E2E2E6"
+baseRadius = "large"
+buttonRadius = "full"
+greenColor = "#1F9D55"
+orangeColor = "#E8401C"
+violetColor = "#4338CA"
+chartCategoricalColors = ["#4338CA", "#E8401C", "#1F9D55", "#B9A6FF", "#F28AE6", "#8A8A93"]
+dataframeHeaderBackgroundColor = "#F6F6F7"
+dataframeBorderColor = "#ECECEF"
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F3F4"
+textColor = "#111114"
+borderColor = "#ECECEF"
